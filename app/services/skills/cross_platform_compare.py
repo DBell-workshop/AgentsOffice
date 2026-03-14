@@ -110,19 +110,20 @@ _COMPARISON_PROMPT = """\
 
 ## 输出格式
 
-请严格返回以下 JSON 格式（不要包含 markdown 代码块标记）：
+请严格返回以下 JSON 格式（不要包含 markdown 代码块标记）。
+注意：每个字段的值要简洁，dimension 的 summary 控制在30字以内，recommendation 控制在100字以内。
 {{
   "comparison_type": "same_product 或 similar_products 或 different_products",
   "type_label": "对比类型的中文标题",
-  "recommendation": "3-4句话的购买建议，包含具体推荐商品、平台、理由和风险提示",
+  "recommendation": "2-3句简洁的购买建议",
   "best_value": {{
     "product_index": 最佳性价比商品的序号（从1开始），
-    "reason": "一句话说明为什么这个是最佳选择"
+    "reason": "一句话说明原因"
   }},
   "dimensions": [
     {{
-      "name": "维度名称（如：价格对比、卖家信誉、用户口碑、综合性价比）",
-      "summary": "该维度的对比结论"
+      "name": "维度名",
+      "summary": "简洁的对比结论（30字以内）"
     }}
   ]
 }}"""
@@ -163,15 +164,27 @@ async def _build_comparison_with_llm(selected: List[Dict[str, Any]]) -> Dict[str
         result = await async_chat_completion(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=1500,
+            max_tokens=2048,
         )
 
         content = result.get("content", "").strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1] if "\n" in content else content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        content = content.strip()
+        # 提取 JSON：先尝试从 ```json ... ``` 中提取，再尝试找第一个 { 到最后一个 }
+        if "```" in content:
+            # 去掉 markdown 代码块
+            parts = content.split("```")
+            for part in parts:
+                part = part.strip()
+                if part.startswith("json"):
+                    part = part[4:].strip()
+                if part.startswith("{"):
+                    content = part
+                    break
+        else:
+            # 直接找 JSON 对象边界
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end != -1:
+                content = content[start : end + 1]
 
         llm_analysis = json.loads(content)
     except (json.JSONDecodeError, KeyError, Exception) as e:
