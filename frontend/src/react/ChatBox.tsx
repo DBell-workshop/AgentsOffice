@@ -1,15 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { EventBus } from '../shared/events/EventBus';
 import { loadAgentRegistry, getAgentsCached, type AgentRegistryEntry } from '../shared/agentRegistry';
+import { ChatContactList, type ContactItem } from './ChatContactList';
 
 // Agent 列表辅助函数（从 agentRegistry 动态加载）
 function toAgentDef(e: AgentRegistryEntry) {
   return { slug: e.slug, name: e.displayName, color: e.color, role: e.role };
 }
 function getAgents() { return getAgentsCached().map(toAgentDef); }
-function getDirectChatAgents() { return getAgents().filter((a) => a.slug !== 'dispatcher'); }
 
-type ChatMode = 'group' | 'direct';
+// 群聊是一个虚拟联系人
+const GROUP_CONTACT_SLUG = 'group';
 
 interface ChatMessage {
   id: string;
@@ -41,12 +42,12 @@ function nextMsgId(): string {
   return `msg-${++msgCounter}-${Date.now()}`;
 }
 
-const WELCOME_MSG: ChatMessage = {
-  id: 'sys-welcome',
-  role: 'system',
-  content: '欢迎来到 AgentsOffice！\n直接输入需求，调度员会自动分配合适的 Agent。',
-  timestamp: new Date(),
-};
+function makeWelcomeMsg(contactName?: string): ChatMessage {
+  const content = contactName
+    ? `你现在和${contactName}直接对话，消息不经过调度员。`
+    : '欢迎来到 AgentsOffice！\n直接输入需求，调度员会自动分配合适的 Agent。';
+  return { id: 'sys-welcome', role: 'system', content, timestamp: new Date() };
+}
 
 // ============================================================
 // Markdown 表格 + 基本格式解析
@@ -69,25 +70,19 @@ function parseMarkdownContent(content: string): React.ReactNode[] {
   };
 
   while (i < lines.length) {
-    // 检测 markdown 表格：当前行含 | 且下一行是分隔行（|----|）
     if (
       lines[i].includes('|') &&
       i + 1 < lines.length &&
       /^\|[\s\-:|]+\|$/.test(lines[i + 1].trim())
     ) {
       flushText();
-
-      // 解析表头
       const headerCells = parseTableRow(lines[i]);
-      i += 2; // 跳过分隔行
-
-      // 解析数据行
+      i += 2;
       const rows: string[][] = [];
       while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
         rows.push(parseTableRow(lines[i]));
         i++;
       }
-
       result.push(
         <div key={`tbl-${result.length}`} style={tableStyles.wrapper}>
           <table style={tableStyles.table}>
@@ -126,12 +121,11 @@ function parseMarkdownContent(content: string): React.ReactNode[] {
 function parseTableRow(line: string): string[] {
   return line
     .split('|')
-    .slice(1, -1) // 去掉首尾空串
+    .slice(1, -1)
     .map((c) => c.trim());
 }
 
 function formatInlineMarkdown(text: string): React.ReactNode[] {
-  // 处理 **粗体** 和 `代码`
   const parts: React.ReactNode[] = [];
   const regex = /(\*\*(.+?)\*\*|`([^`]+)`)/g;
   let lastIndex = 0;
@@ -209,10 +203,6 @@ interface SSEEvent {
   data: any;
 }
 
-/**
- * 通过 SSE 流式调用后端聊天接口。
- * 每收到一个事件立即调用 onEvent 回调，实现实时推送。
- */
 async function streamChat(
   url: string,
   body: Record<string, any>,
@@ -279,20 +269,19 @@ function formatRelativeTime(isoStr: string): string {
 // ChatBox 组件
 // ============================================================
 export const ChatBox: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MSG]);
+  const [messages, setMessages] = useState<ChatMessage[]>([makeWelcomeMsg()]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [showMention, setShowMention] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [panelWidth, setPanelWidth] = useState(360);
+  const [panelWidth, setPanelWidth] = useState(520);
   const [resizing, setResizing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const resizeStartX = useRef(0);
-  const resizeStartW = useRef(360);
-  // 维护发送给后端的对话历史
+  const resizeStartW = useRef(520);
   const historyRef = useRef<{ role: string; content: string }[]>([]);
 
   // 会话管理
@@ -301,18 +290,18 @@ export const ChatBox: React.FC = () => {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Agent 列表（从 API 动态加载，fallback 为内置默认）
+  // Agent 列表
   const [agents, setAgents] = useState(getAgents());
-  const directChatAgents = agents.filter((a) => a.slug !== 'dispatcher');
 
   useEffect(() => {
     loadAgentRegistry().then(() => setAgents(getAgents()));
   }, []);
 
-  // 聊天模式：群聊 / 私聊
-  const [chatMode, setChatMode] = useState<ChatMode>('group');
-  const [directAgent, setDirectAgent] = useState<string>(getDirectChatAgents()[0]?.slug || '');
-  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  // 当前聊天对象：'group' 表示群聊，agent slug 表示私聊
+  const [activeContact, setActiveContact] = useState<string>(GROUP_CONTACT_SLUG);
+
+  // 每个联系人的最后一条消息预览
+  const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
 
   // Skill 会话状态
   const [activeSkillSession, setActiveSkillSession] = useState<string | null>(null);
@@ -329,7 +318,7 @@ export const ChatBox: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 广播 ChatBox 宽度变化，让 AgentStatusBar 等组件跟随调整
+  // 广播 ChatBox 宽度变化
   useEffect(() => {
     EventBus.emit('chatbox:resize', { width: panelWidth });
   }, [panelWidth]);
@@ -344,7 +333,6 @@ export const ChatBox: React.FC = () => {
       .catch(() => {});
   }, []);
 
-  // 组件挂载时加载一次
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
@@ -353,15 +341,64 @@ export const ChatBox: React.FC = () => {
     setMessages((prev) => [...prev, { ...msg, id: nextMsgId(), timestamp: new Date() }]);
   }, []);
 
-  // 新建会话
-  const startNewConversation = useCallback(() => {
+  // 构建联系人列表
+  const contacts: ContactItem[] = React.useMemo(() => {
+    const list: ContactItem[] = [
+      {
+        slug: GROUP_CONTACT_SLUG,
+        name: '全员群聊',
+        color: '#ffd700',
+        role: '调度员自动分配',
+        lastMessage: lastMessages[GROUP_CONTACT_SLUG],
+      },
+    ];
+    for (const a of agents) {
+      list.push({
+        slug: a.slug,
+        name: a.name,
+        color: a.color,
+        role: a.role,
+        lastMessage: lastMessages[a.slug],
+      });
+    }
+    return list;
+  }, [agents, lastMessages]);
+
+  // 切换联系人
+  const handleSelectContact = useCallback((slug: string) => {
+    if (slug === activeContact) return;
+    setActiveContact(slug);
     setConversationId(null);
-    setMessages([WELCOME_MSG]);
     historyRef.current = [];
     setShowHistory(false);
-    setShowAgentPicker(false);
+    setActiveSkillSession(null);
+    setSelectedProducts([]);
+
+    if (slug === GROUP_CONTACT_SLUG) {
+      setMessages([makeWelcomeMsg()]);
+    } else {
+      const agent = getAgents().find((a) => a.slug === slug);
+      setMessages([makeWelcomeMsg(agent?.name || slug)]);
+    }
     inputRef.current?.focus();
-  }, []);
+  }, [activeContact]);
+
+  // 新建会话（在当前联系人下）
+  const startNewConversation = useCallback(() => {
+    setConversationId(null);
+    historyRef.current = [];
+    setShowHistory(false);
+    setActiveSkillSession(null);
+    setSelectedProducts([]);
+
+    if (activeContact === GROUP_CONTACT_SLUG) {
+      setMessages([makeWelcomeMsg()]);
+    } else {
+      const agent = getAgents().find((a) => a.slug === activeContact);
+      setMessages([makeWelcomeMsg(agent?.name || activeContact)]);
+    }
+    inputRef.current?.focus();
+  }, [activeContact]);
 
   // 切换到历史会话
   const switchToConversation = useCallback(async (convId: string) => {
@@ -379,9 +416,7 @@ export const ChatBox: React.FC = () => {
       setConversationId(convId);
       historyRef.current = [];
 
-      // 转换后端消息为前端格式
       const loaded: ChatMessage[] = (data.messages || []).map((m: any) => {
-        // 重建 historyRef
         if (m.role === 'user') {
           historyRef.current.push({ role: 'user', content: m.content });
         } else if (m.role === 'agent' && m.message_type !== 'process') {
@@ -398,7 +433,7 @@ export const ChatBox: React.FC = () => {
         } as ChatMessage;
       });
 
-      setMessages(loaded.length > 0 ? loaded : [WELCOME_MSG]);
+      setMessages(loaded.length > 0 ? loaded : [makeWelcomeMsg()]);
     } catch {
       // ignore
     } finally {
@@ -412,7 +447,6 @@ export const ChatBox: React.FC = () => {
     try {
       await fetch(`/api/v1/office/conversations/${convId}`, { method: 'DELETE' });
       setConversations((prev) => prev.filter((c) => c.conversation_id !== convId));
-      // 如果删的是当前会话，新建一个
       if (convId === conversationId) {
         startNewConversation();
       }
@@ -420,6 +454,12 @@ export const ChatBox: React.FC = () => {
       // ignore
     }
   }, [conversationId, startNewConversation]);
+
+  // 更新联系人的最后消息预览
+  const updateLastMessage = useCallback((contactSlug: string, text: string) => {
+    const short = text.length > 30 ? text.slice(0, 30) + '...' : text;
+    setLastMessages((prev) => ({ ...prev, [contactSlug]: short }));
+  }, []);
 
   // 发送消息到后端（SSE 流式）
   const handleSend = useCallback(async () => {
@@ -432,11 +472,12 @@ export const ChatBox: React.FC = () => {
     setSending(true);
 
     historyRef.current.push({ role: 'user', content: trimmed });
+    updateLastMessage(activeContact, trimmed);
 
-    // 跟踪本轮活跃的 agent slugs，用于最后重置状态
     const activeAgentSlugs = new Set<string>();
 
-    const url = chatMode === 'direct'
+    const isDirectChat = activeContact !== GROUP_CONTACT_SLUG;
+    const url = isDirectChat
       ? '/api/v1/office/chat/direct/stream'
       : '/api/v1/office/chat/stream';
 
@@ -445,8 +486,8 @@ export const ChatBox: React.FC = () => {
       history: historyRef.current.slice(-10),
       conversation_id: conversationId || undefined,
     };
-    if (chatMode === 'direct') {
-      body.agent_slug = directAgent;
+    if (isDirectChat) {
+      body.agent_slug = activeContact;
     }
 
     try {
@@ -520,12 +561,13 @@ export const ChatBox: React.FC = () => {
                 tokens: d.usage.total_tokens || 0,
               });
             }
+            // 更新最后消息预览
+            updateLastMessage(activeContact, d.content);
             historyRef.current.push({ role: 'assistant', content: d.content });
             break;
           }
 
           case 'done':
-            // 所有活跃 Agent 恢复空闲
             for (const slug of activeAgentSlugs) {
               EventBus.emit('agent:status', { agentSlug: slug, status: 'idle' });
             }
@@ -589,6 +631,7 @@ export const ChatBox: React.FC = () => {
                   payload: d.payload,
                 },
               });
+              updateLastMessage(activeContact, d.content || '比价分析完成');
             }
             break;
           }
@@ -614,24 +657,23 @@ export const ChatBox: React.FC = () => {
         content: `连接失败: ${err instanceof Error ? err.message : '未知错误'}。请确认后端已启动。`,
       });
     } finally {
-      // 确保所有 Agent 恢复空闲
       for (const slug of activeAgentSlugs) {
         EventBus.emit('agent:status', { agentSlug: slug, status: 'idle' });
       }
       setSending(false);
     }
-  }, [input, sending, addMessage, conversationId, chatMode, directAgent, agents, loadConversations]);
+  }, [input, sending, addMessage, conversationId, activeContact, agents, loadConversations, updateLastMessage]);
 
   // Skill 商品选择切换
   const toggleProductSelection = useCallback((productId: string) => {
     setSelectedProducts((prev) => {
       if (prev.includes(productId)) return prev.filter((id) => id !== productId);
-      if (prev.length >= 4) return prev; // 最多4个
+      if (prev.length >= 4) return prev;
       return [...prev, productId];
     });
   }, []);
 
-  // Skill 用户响应（提交选择的商品）
+  // Skill 用户响应
   const handleSkillRespond = useCallback(async () => {
     if (!activeSkillSession || selectedProducts.length < 2 || skillResponding) return;
 
@@ -686,7 +728,7 @@ export const ChatBox: React.FC = () => {
     }
   }, [activeSkillSession, selectedProducts, skillResponding, addMessage]);
 
-  // 文件上传（接受 File 对象）
+  // 文件上传
   const uploadFile = useCallback(async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
     if (!ext || !['csv', 'xlsx', 'xls'].includes(ext)) {
@@ -706,7 +748,6 @@ export const ChatBox: React.FC = () => {
         body: formData,
       });
 
-      // 移除上传提示
       setMessages((prev) => prev.filter((m) => m.content !== `正在上传 ${file.name}...`));
 
       if (res.ok) {
@@ -721,7 +762,6 @@ export const ChatBox: React.FC = () => {
           content: `文件 ${file.name} 上传成功 (${rows} 行 x ${cols} 列)。\n输入需求让数据工程师帮你处理，例如：\n"帮我分析刚才上传的文件并导入数据库"`,
         });
 
-        // 自动把文件信息加入对话上下文
         historyRef.current.push({
           role: 'user',
           content: `[系统通知] 用户上传了文件: ${file.name}，路径: ${data?.file_path}，${rows} 行 x ${cols} 列`,
@@ -738,7 +778,6 @@ export const ChatBox: React.FC = () => {
     }
   }, [addMessage]);
 
-  // 点击上传按钮 — 动态创建 <input type="file"> 避免 DOM 层级问题
   const triggerFileDialog = useCallback(() => {
     if (uploading || sending) return;
     const input = document.createElement('input');
@@ -754,7 +793,7 @@ export const ChatBox: React.FC = () => {
     input.click();
   }, [uploading, sending, uploadFile]);
 
-  // 拖拽上传处理
+  // 拖拽上传
   const dragCounter = useRef(0);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -798,9 +837,8 @@ export const ChatBox: React.FC = () => {
     resizeStartW.current = panelWidth;
 
     const onMouseMove = (ev: MouseEvent) => {
-      // 向左拖 → 宽度增大（因为面板在右侧）
       const delta = resizeStartX.current - ev.clientX;
-      const newWidth = Math.max(360, Math.min(window.innerWidth * 0.8, resizeStartW.current + delta));
+      const newWidth = Math.max(420, Math.min(window.innerWidth * 0.85, resizeStartW.current + delta));
       setPanelWidth(newWidth);
     };
 
@@ -843,7 +881,6 @@ export const ChatBox: React.FC = () => {
     setShowMention(false);
   };
 
-  // 插入 @提及
   const insertMention = (agentName: string) => {
     const lastAt = input.lastIndexOf('@');
     const newInput = input.slice(0, lastAt) + `@${agentName} `;
@@ -856,12 +893,13 @@ export const ChatBox: React.FC = () => {
     (a) => a.name.includes(mentionFilter) || a.slug.includes(mentionFilter),
   );
 
-  const directAgentDef = agents.find((a) => a.slug === directAgent);
+  const activeContactDef = activeContact === GROUP_CONTACT_SLUG
+    ? { name: '全员群聊', color: '#ffd700' }
+    : agents.find((a) => a.slug === activeContact) || { name: activeContact, color: '#888' };
 
   const getAgentColor = (slug?: string) =>
     agents.find((a) => a.slug === slug)?.color || '#888';
 
-  // 打开历史面板时刷新列表
   const toggleHistory = useCallback(() => {
     const next = !showHistory;
     setShowHistory(next);
@@ -884,6 +922,7 @@ export const ChatBox: React.FC = () => {
         }}
         onMouseDown={handleResizeStart}
       />
+
       {/* 拖拽上传遮罩 */}
       {dragging && (
         <div style={styles.dropOverlay}>
@@ -893,386 +932,340 @@ export const ChatBox: React.FC = () => {
         </div>
       )}
 
-      {/* 标题栏 */}
-      <div style={styles.header}>
-        <div style={styles.headerLeft}>
-          <button
-            onClick={toggleHistory}
-            title="会话历史"
-            style={{
-              ...styles.headerBtn,
-              color: showHistory ? '#ffd700' : '#888',
-            }}
-          >
-            {showHistory ? '✕' : '☰'}
-          </button>
-          {chatMode === 'group' ? (
-            <span style={{ color: '#ffd700', fontWeight: 'bold' }}>AgentsOffice Chat</span>
-          ) : (
-            <span
-              style={{ color: directAgentDef?.color || '#ffd700', fontWeight: 'bold', cursor: 'pointer' }}
-              onClick={() => setShowAgentPicker(!showAgentPicker)}
-            >
-              与 {directAgentDef?.name} 私聊 ▾
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {/* 群聊/私聊切换 */}
-          <button
-            onClick={() => {
-              const next: ChatMode = chatMode === 'group' ? 'direct' : 'group';
-              setChatMode(next);
-              setShowAgentPicker(false);
-              // 切换模式时新建会话
-              startNewConversation();
-              if (next === 'direct') {
-                setMessages([{
-                  id: 'sys-direct',
-                  role: 'system',
-                  content: `进入私聊模式。你现在直接和${agents.find(a => a.slug === directAgent)?.name || directAgent}对话，消息不经过调度员。`,
-                  timestamp: new Date(),
-                }]);
-              }
-            }}
-            title={chatMode === 'group' ? '切换到私聊' : '切换到群聊'}
-            style={{
-              ...styles.headerBtn,
-              fontSize: '13px',
-              color: chatMode === 'direct' ? '#ffd700' : '#888',
-            }}
-          >
-            {chatMode === 'group' ? '👤' : '👥'}
-          </button>
-          <button
-            onClick={startNewConversation}
-            title="新建对话"
-            style={styles.headerBtn}
-          >
-            +
-          </button>
-        </div>
-      </div>
+      {/* ===== 左右分栏布局 ===== */}
+      <div style={styles.mainLayout}>
+        {/* 左侧联系人列表 */}
+        <ChatContactList
+          contacts={contacts}
+          activeContact={activeContact}
+          onSelectContact={handleSelectContact}
+        />
 
-      {/* 私聊 Agent 选择器 */}
-      {showAgentPicker && chatMode === 'direct' && (
-        <div style={{
-          background: '#2a2218', borderBottom: '1px solid #44382a',
-          padding: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4,
-        }}>
-          {directChatAgents.map((a) => (
-            <button
-              key={a.slug}
-              onClick={() => {
-                setDirectAgent(a.slug);
-                setShowAgentPicker(false);
-                startNewConversation();
-                setMessages([{
-                  id: 'sys-direct',
-                  role: 'system',
-                  content: `进入私聊模式。你现在直接和${a.name}对话，消息不经过调度员。`,
-                  timestamp: new Date(),
-                }]);
-              }}
-              style={{
-                background: a.slug === directAgent ? 'rgba(255, 215, 0, 0.15)' : 'rgba(255,255,255,0.05)',
-                border: a.slug === directAgent ? '1px solid #ffd700' : '1px solid #44382a',
-                borderRadius: 4, padding: '6px 8px', cursor: 'pointer', textAlign: 'left',
-              }}
-            >
-              <span style={{ color: a.color, fontSize: '12px', fontWeight: 'bold' }}>{a.name}</span>
-              <span style={{ color: '#888', fontSize: '10px', marginLeft: 4 }}>{a.role}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* 会话历史面板（覆盖在消息列表上方） */}
-      {showHistory && (
-        <div style={styles.historyPanel}>
-          <div style={styles.historyHeader}>
-            <span>会话历史</span>
-            <span style={{ color: '#888', fontSize: 12 }}>{conversations.length} 个会话</span>
+        {/* 右侧聊天区 */}
+        <div style={styles.chatArea}>
+          {/* 标题栏 */}
+          <div style={styles.header}>
+            <div style={styles.headerLeft}>
+              <button
+                onClick={toggleHistory}
+                title="会话历史"
+                style={{
+                  ...styles.headerBtn,
+                  color: showHistory ? '#ffd700' : '#888',
+                }}
+              >
+                {showHistory ? '✕' : '☰'}
+              </button>
+              <span style={{ color: activeContactDef.color, fontWeight: 'bold' }}>
+                {activeContactDef.name}
+              </span>
+              {activeContact !== GROUP_CONTACT_SLUG && (
+                <span style={{ color: '#666', fontSize: 11, marginLeft: 4 }}>私聊</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button
+                onClick={startNewConversation}
+                title="新建对话"
+                style={styles.headerBtn}
+              >
+                +
+              </button>
+            </div>
           </div>
-          <div style={styles.historyList}>
-            {conversations.length === 0 ? (
-              <div style={styles.historyEmpty}>暂无历史会话</div>
-            ) : (
-              conversations.map((conv) => (
-                <div
-                  key={conv.conversation_id}
-                  onClick={() => switchToConversation(conv.conversation_id)}
-                  style={{
-                    ...styles.historyItem,
-                    ...(conv.conversation_id === conversationId ? styles.historyItemActive : {}),
-                  }}
-                  onMouseEnter={(e) => {
-                    if (conv.conversation_id !== conversationId) {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (conv.conversation_id !== conversationId) {
-                      e.currentTarget.style.background = 'transparent';
-                    }
-                  }}
-                >
-                  <div style={styles.historyItemMain}>
-                    <div style={styles.historyTitle}>
-                      {conv.title || '新对话'}
-                    </div>
-                    <div style={styles.historyMeta}>
-                      <span>{conv.message_count} 条消息</span>
-                      <span>{formatRelativeTime(conv.updated_at)}</span>
-                    </div>
-                    {conv.last_message && (
-                      <div style={styles.historyPreview}>
-                        {conv.last_message}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={(e) => deleteConversation(conv.conversation_id, e)}
-                    title="删除会话"
-                    style={styles.historyDeleteBtn}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* 加载中提示 */}
-      {loadingHistory && (
-        <div style={styles.loadingOverlay}>
-          加载历史消息中...
-        </div>
-      )}
-
-      {/* 消息列表 */}
-      <div style={styles.messageList}>
-        {messages.map((msg) => (
-          <div key={msg.id} style={{ marginBottom: 10 }}>
-            {msg.role === 'system' ? (
-              <div style={styles.systemMsg}>{msg.content}</div>
-            ) : msg.role === 'user' ? (
-              <div>
-                <div style={styles.senderLabel}>你</div>
-                <div style={styles.userBubble}>{msg.content}</div>
+          {/* 会话历史面板 */}
+          {showHistory && (
+            <div style={styles.historyPanel}>
+              <div style={styles.historyHeader}>
+                <span>会话历史</span>
+                <span style={{ color: '#888', fontSize: 12 }}>{conversations.length} 个会话</span>
               </div>
-            ) : msg.role === 'process' ? (
-              <div style={styles.processMsg}>
-                <span style={{ color: getAgentColor(msg.agentSlug), fontWeight: 'bold' }}>
-                  {msg.agentName}
-                </span>
-                {' '}{msg.content}
-              </div>
-            ) : msg.role === 'skill' ? (
-              <div>
-                {msg.messageType === 'skill_start' && (
-                  <div style={skillStyles.startMsg}>{msg.content}</div>
-                )}
-                {msg.messageType === 'skill_search_results' && msg.skillData?.payload && (
-                  <div style={skillStyles.resultsContainer}>
-                    <div style={skillStyles.resultsHeader}>
-                      {msg.content}
-                    </div>
-                    {Object.entries(msg.skillData.payload.results as Record<string, any[]>).map(
-                      ([platform, products]) => (
-                        <div key={platform} style={skillStyles.platformGroup}>
-                          <div style={skillStyles.platformLabel}>{platform}</div>
-                          {products.map((p: any) => {
-                            const isSelected = selectedProducts.includes(p.product_id);
-                            return (
-                              <div
-                                key={p.product_id}
-                                onClick={() => toggleProductSelection(p.product_id)}
-                                style={{
-                                  ...skillStyles.productCard,
-                                  borderColor: isSelected ? '#ffd700' : '#333',
-                                  background: isSelected
-                                    ? 'rgba(255, 215, 0, 0.08)'
-                                    : 'rgba(255, 255, 255, 0.03)',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                <div style={skillStyles.productHeader}>
-                                  <span style={skillStyles.checkbox}>
-                                    {isSelected ? '☑' : '☐'}
-                                  </span>
-                                  <span style={skillStyles.productName}>{p.name}</span>
-                                </div>
-                                <div style={skillStyles.productMeta}>
-                                  <span style={skillStyles.productPrice}>
-                                    ¥{p.price}
-                                  </span>
-                                  {p.original_price > p.price && (
-                                    <span style={skillStyles.originalPrice}>
-                                      ¥{p.original_price}
-                                    </span>
-                                  )}
-                                  <span style={skillStyles.productRating}>
-                                    {p.rating} ({(p.review_count / 1000).toFixed(1)}k评)
-                                  </span>
-                                </div>
-                                {p.promotions?.length > 0 && (
-                                  <div style={skillStyles.promotions}>
-                                    {p.promotions.map((promo: string, i: number) => (
-                                      <span key={i} style={skillStyles.promoTag}>{promo}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ),
-                    )}
-                  </div>
-                )}
-                {msg.messageType === 'skill_awaiting_user' && activeSkillSession && (
-                  <div style={skillStyles.actionBar}>
-                    <span style={{ color: '#aaa', fontSize: 12 }}>
-                      已选 {selectedProducts.length}/4 个商品
-                    </span>
-                    <button
-                      onClick={handleSkillRespond}
-                      disabled={selectedProducts.length < 2 || skillResponding}
+              <div style={styles.historyList}>
+                {conversations.length === 0 ? (
+                  <div style={styles.historyEmpty}>暂无历史会话</div>
+                ) : (
+                  conversations.map((conv) => (
+                    <div
+                      key={conv.conversation_id}
+                      onClick={() => switchToConversation(conv.conversation_id)}
                       style={{
-                        ...skillStyles.compareBtn,
-                        opacity: selectedProducts.length < 2 || skillResponding ? 0.4 : 1,
+                        ...styles.historyItem,
+                        ...(conv.conversation_id === conversationId ? styles.historyItemActive : {}),
+                      }}
+                      onMouseEnter={(e) => {
+                        if (conv.conversation_id !== conversationId) {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (conv.conversation_id !== conversationId) {
+                          e.currentTarget.style.background = 'transparent';
+                        }
                       }}
                     >
-                      {skillResponding ? '分析中...' : `对比 (${selectedProducts.length})`}
-                    </button>
-                  </div>
-                )}
-                {msg.messageType === 'skill_comparison_result' && msg.skillData?.payload && (
-                  <div style={skillStyles.comparisonCard}>
-                    <div style={skillStyles.comparisonHeader}>
-                      {msg.skillData.payload.type_label || '比价结论'}
-                    </div>
-                    <div style={skillStyles.recommendation}>
-                      {msg.skillData.payload.recommendation}
-                    </div>
-                    <div style={skillStyles.priceRange}>
-                      <div style={skillStyles.priceItem}>
-                        <span style={{ color: '#888' }}>最低价</span>
-                        <span style={skillStyles.lowPrice}>
-                          ¥{msg.skillData.payload.price_range.min}
-                        </span>
-                      </div>
-                      <div style={skillStyles.priceItem}>
-                        <span style={{ color: '#888' }}>最高价</span>
-                        <span style={{ color: '#ff6b6b', fontSize: 18 }}>
-                          ¥{msg.skillData.payload.price_range.max}
-                        </span>
-                      </div>
-                      {msg.skillData.payload.price_range.savings > 0 && (
-                        <div style={skillStyles.priceItem}>
-                          <span style={{ color: '#888' }}>可省</span>
-                          <span style={{ color: '#ffd700', fontSize: 18, fontWeight: 'bold' }}>
-                            ¥{msg.skillData.payload.price_range.savings}
-                          </span>
+                      <div style={styles.historyItemMain}>
+                        <div style={styles.historyTitle}>
+                          {conv.title || '新对话'}
                         </div>
-                      )}
+                        <div style={styles.historyMeta}>
+                          <span>{conv.message_count} 条消息</span>
+                          <span>{formatRelativeTime(conv.updated_at)}</span>
+                        </div>
+                        {conv.last_message && (
+                          <div style={styles.historyPreview}>
+                            {conv.last_message}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => deleteConversation(conv.conversation_id, e)}
+                        title="删除会话"
+                        style={styles.historyDeleteBtn}
+                      >
+                        ✕
+                      </button>
                     </div>
-                    {msg.skillData.payload.promotions_summary && (
-                      <div style={skillStyles.promoSummary}>
-                        {Object.entries(msg.skillData.payload.promotions_summary).map(
-                          ([platform, promos]) => (
-                            <div key={platform} style={{ marginBottom: 4 }}>
-                              <span style={{ color: '#ffd700', fontSize: 11 }}>{platform}: </span>
-                              <span style={{ color: '#aaa', fontSize: 11 }}>
-                                {(promos as string[]).join('、')}
-                              </span>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 加载中提示 */}
+          {loadingHistory && (
+            <div style={styles.loadingOverlay}>
+              加载历史消息中...
+            </div>
+          )}
+
+          {/* 消息列表 */}
+          <div style={styles.messageList}>
+            {messages.map((msg) => (
+              <div key={msg.id} style={{ marginBottom: 10 }}>
+                {msg.role === 'system' ? (
+                  <div style={styles.systemMsg}>{msg.content}</div>
+                ) : msg.role === 'user' ? (
+                  <div>
+                    <div style={styles.senderLabel}>你</div>
+                    <div style={styles.userBubble}>{msg.content}</div>
+                  </div>
+                ) : msg.role === 'process' ? (
+                  <div style={styles.processMsg}>
+                    <span style={{ color: getAgentColor(msg.agentSlug), fontWeight: 'bold' }}>
+                      {msg.agentName}
+                    </span>
+                    {' '}{msg.content}
+                  </div>
+                ) : msg.role === 'skill' ? (
+                  <div>
+                    {msg.messageType === 'skill_start' && (
+                      <div style={skillStyles.startMsg}>{msg.content}</div>
+                    )}
+                    {msg.messageType === 'skill_search_results' && msg.skillData?.payload && (
+                      <div style={skillStyles.resultsContainer}>
+                        <div style={skillStyles.resultsHeader}>
+                          {msg.content}
+                        </div>
+                        {Object.entries(msg.skillData.payload.results as Record<string, any[]>).map(
+                          ([platform, products]) => (
+                            <div key={platform} style={skillStyles.platformGroup}>
+                              <div style={skillStyles.platformLabel}>{platform}</div>
+                              {products.map((p: any) => {
+                                const isSelected = selectedProducts.includes(p.product_id);
+                                return (
+                                  <div
+                                    key={p.product_id}
+                                    onClick={() => toggleProductSelection(p.product_id)}
+                                    style={{
+                                      ...skillStyles.productCard,
+                                      borderColor: isSelected ? '#ffd700' : '#333',
+                                      background: isSelected
+                                        ? 'rgba(255, 215, 0, 0.08)'
+                                        : 'rgba(255, 255, 255, 0.03)',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    <div style={skillStyles.productHeader}>
+                                      <span style={skillStyles.checkbox}>
+                                        {isSelected ? '☑' : '☐'}
+                                      </span>
+                                      <span style={skillStyles.productName}>{p.name}</span>
+                                    </div>
+                                    <div style={skillStyles.productMeta}>
+                                      <span style={skillStyles.productPrice}>
+                                        ¥{p.price}
+                                      </span>
+                                      {p.original_price > p.price && (
+                                        <span style={skillStyles.originalPrice}>
+                                          ¥{p.original_price}
+                                        </span>
+                                      )}
+                                      <span style={skillStyles.productRating}>
+                                        {p.rating} ({(p.review_count / 1000).toFixed(1)}k评)
+                                      </span>
+                                    </div>
+                                    {p.promotions?.length > 0 && (
+                                      <div style={skillStyles.promotions}>
+                                        {p.promotions.map((promo: string, i: number) => (
+                                          <span key={i} style={skillStyles.promoTag}>{promo}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           ),
                         )}
                       </div>
                     )}
+                    {msg.messageType === 'skill_awaiting_user' && activeSkillSession && (
+                      <div style={skillStyles.actionBar}>
+                        <span style={{ color: '#aaa', fontSize: 12 }}>
+                          已选 {selectedProducts.length}/4 个商品
+                        </span>
+                        <button
+                          onClick={handleSkillRespond}
+                          disabled={selectedProducts.length < 2 || skillResponding}
+                          style={{
+                            ...skillStyles.compareBtn,
+                            opacity: selectedProducts.length < 2 || skillResponding ? 0.4 : 1,
+                          }}
+                        >
+                          {skillResponding ? '分析中...' : `对比 (${selectedProducts.length})`}
+                        </button>
+                      </div>
+                    )}
+                    {msg.messageType === 'skill_comparison_result' && msg.skillData?.payload && (
+                      <div style={skillStyles.comparisonCard}>
+                        <div style={skillStyles.comparisonHeader}>
+                          {msg.skillData.payload.type_label || '比价结论'}
+                        </div>
+                        <div style={skillStyles.recommendation}>
+                          {msg.skillData.payload.recommendation}
+                        </div>
+                        <div style={skillStyles.priceRange}>
+                          <div style={skillStyles.priceItem}>
+                            <span style={{ color: '#888' }}>最低价</span>
+                            <span style={skillStyles.lowPrice}>
+                              ¥{msg.skillData.payload.price_range.min}
+                            </span>
+                          </div>
+                          <div style={skillStyles.priceItem}>
+                            <span style={{ color: '#888' }}>最高价</span>
+                            <span style={{ color: '#ff6b6b', fontSize: 18 }}>
+                              ¥{msg.skillData.payload.price_range.max}
+                            </span>
+                          </div>
+                          {msg.skillData.payload.price_range.savings > 0 && (
+                            <div style={skillStyles.priceItem}>
+                              <span style={{ color: '#888' }}>可省</span>
+                              <span style={{ color: '#ffd700', fontSize: 18, fontWeight: 'bold' }}>
+                                ¥{msg.skillData.payload.price_range.savings}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        {msg.skillData.payload.promotions_summary && (
+                          <div style={skillStyles.promoSummary}>
+                            {Object.entries(msg.skillData.payload.promotions_summary).map(
+                              ([platform, promos]) => (
+                                <div key={platform} style={{ marginBottom: 4 }}>
+                                  <span style={{ color: '#ffd700', fontSize: 11 }}>{platform}: </span>
+                                  <span style={{ color: '#aaa', fontSize: 11 }}>
+                                    {(promos as string[]).join('、')}
+                                  </span>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ ...styles.senderLabel, color: getAgentColor(msg.agentSlug) }}>
+                      {msg.agentName}
+                    </div>
+                    <div
+                      style={{
+                        ...styles.agentBubble,
+                        borderColor: `${getAgentColor(msg.agentSlug)}44`,
+                      }}
+                    >
+                      {parseMarkdownContent(msg.content)}
+                    </div>
                   </div>
                 )}
               </div>
-            ) : (
-              <div>
-                <div style={{ ...styles.senderLabel, color: getAgentColor(msg.agentSlug) }}>
-                  {msg.agentName}
-                </div>
-                <div
-                  style={{
-                    ...styles.agentBubble,
-                    borderColor: `${getAgentColor(msg.agentSlug)}44`,
-                  }}
-                >
-                  {parseMarkdownContent(msg.content)}
-                </div>
-              </div>
-            )}
+            ))}
+            <div ref={messagesEndRef} />
           </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
 
-      {/* @提及下拉 */}
-      {showMention && filteredAgents.length > 0 && (
-        <div style={styles.mentionMenu}>
-          {filteredAgents.map((agent) => (
-            <div
-              key={agent.slug}
-              onClick={() => insertMention(agent.name)}
-              style={styles.mentionItem}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')
-              }
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <span style={{ color: agent.color }}>@{agent.name}</span>
-              <span style={{ color: '#888', fontSize: '12px' }}>{agent.role}</span>
+          {/* @提及下拉 */}
+          {showMention && filteredAgents.length > 0 && (
+            <div style={styles.mentionMenu}>
+              {filteredAgents.map((agent) => (
+                <div
+                  key={agent.slug}
+                  onClick={() => insertMention(agent.name)}
+                  style={styles.mentionItem}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')
+                  }
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span style={{ color: agent.color }}>@{agent.name}</span>
+                  <span style={{ color: '#888', fontSize: '12px' }}>{agent.role}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          )}
 
-      {/* 输入区 */}
-      <div style={styles.inputArea}>
-        <button
-          type="button"
-          title="上传 CSV / Excel 文件（也可拖拽文件到聊天区）"
-          onClick={triggerFileDialog}
-          disabled={uploading || sending}
-          style={{
-            ...styles.uploadBtn,
-            opacity: (uploading || sending) ? 0.5 : 1,
-          }}
-        >
-          {uploading ? '⏳' : '📎'}
-        </button>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          placeholder={chatMode === 'direct' ? `和${directAgentDef?.name || ''}说点什么...` : '输入需求，调度员自动分配'}
-          disabled={sending}
-          style={{
-            ...styles.input,
-            opacity: sending ? 0.5 : 1,
-          }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={sending}
-          style={{
-            ...styles.sendBtn,
-            opacity: sending ? 0.5 : 1,
-          }}
-        >
-          {sending ? '…' : '发送'}
-        </button>
+          {/* 输入区 */}
+          <div style={styles.inputArea}>
+            <button
+              type="button"
+              title="上传 CSV / Excel 文件（也可拖拽文件到聊天区）"
+              onClick={triggerFileDialog}
+              disabled={uploading || sending}
+              style={{
+                ...styles.uploadBtn,
+                opacity: (uploading || sending) ? 0.5 : 1,
+              }}
+            >
+              {uploading ? '⏳' : '📎'}
+            </button>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                activeContact === GROUP_CONTACT_SLUG
+                  ? '输入需求，调度员自动分配'
+                  : `和${activeContactDef.name}说点什么...`
+              }
+              disabled={sending}
+              style={{
+                ...styles.input,
+                opacity: sending ? 0.5 : 1,
+              }}
+            />
+            <button
+              onClick={handleSend}
+              disabled={sending}
+              style={{
+                ...styles.sendBtn,
+                opacity: sending ? 0.5 : 1,
+              }}
+            >
+              {sending ? '…' : '发送'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1286,7 +1279,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     top: 0,
     right: 0,
-    width: 360, // 默认值，运行时由 panelWidth 覆盖
+    width: 520,
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
@@ -1306,6 +1299,21 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     zIndex: 200,
     transition: 'background 0.15s',
+  },
+  // 左右分栏主布局
+  mainLayout: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'row' as const,
+    overflow: 'hidden',
+  },
+  // 右侧聊天区
+  chatArea: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    minWidth: 0,
+    position: 'relative' as const,
   },
   header: {
     padding: '10px 12px',
