@@ -76,9 +76,9 @@ export class PreloadScene extends Phaser.Scene {
       frameHeight: 32,
     });
 
-    // 6 个角色 spritesheet（32x64 帧 — 每个角色 2 格高）
-    for (let i = 1; i <= 6; i++) {
-      const key = `char_0${i}`;
+    // 20 个角色 spritesheet（32x64 帧 — 每个角色 2 格高）
+    for (let i = 1; i <= 20; i++) {
+      const key = `char_${String(i).padStart(2, '0')}`;
       this.load.spritesheet(key, `assets/sprites/characters/${key}.png`, {
         frameWidth: 32,
         frameHeight: 64,

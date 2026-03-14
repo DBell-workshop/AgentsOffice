@@ -27,10 +27,14 @@ const SPRITE_MAP: Record<string, string> = {
 };
 let nextSpriteIndex = 8; // 用户自定义 agent 从 char_08 开始
 
+/** 最大可用精灵数（素材包提供 20 个预制角色） */
+const MAX_SPRITES = 20;
+
 export function getSpriteKey(slug: string): string {
   if (SPRITE_MAP[slug]) return SPRITE_MAP[slug];
-  // 动态分配
-  const key = `char_${String(nextSpriteIndex).padStart(2, '0')}`;
+  // 动态分配（超出上限时循环复用）
+  const idx = nextSpriteIndex <= MAX_SPRITES ? nextSpriteIndex : ((nextSpriteIndex - 1) % MAX_SPRITES) + 1;
+  const key = `char_${String(idx).padStart(2, '0')}`;
   SPRITE_MAP[slug] = key;
   nextSpriteIndex++;
   return key;
