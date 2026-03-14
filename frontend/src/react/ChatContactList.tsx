@@ -22,7 +22,7 @@ export const ChatContactList: React.FC<ChatContactListProps> = ({
 }) => {
   return (
     <div style={styles.container}>
-      <div style={styles.header}>通讯录</div>
+      <div style={styles.header}>Agent列表</div>
       <div style={styles.list}>
         {contacts.map((c) => {
           const isActive = c.slug === activeContact;
@@ -78,7 +78,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   header: {
     padding: '10px 12px',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#ffd700',
     borderBottom: '1px solid #333',
