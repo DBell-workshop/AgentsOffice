@@ -71,7 +71,6 @@ export const AgentStatusBar: React.FC = () => {
   useEffect(() => {
     loadAgentRegistry().then((entries) => {
       setAgents((prev) => {
-        const slugSet = new Set(prev.map((a) => a.slug));
         const fromRegistry = entries.map((a) => ({
           slug: a.slug,
           name: a.displayName,

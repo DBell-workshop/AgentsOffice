@@ -13,12 +13,18 @@ type ChatMode = 'group' | 'direct';
 
 interface ChatMessage {
   id: string;
-  role: 'user' | 'agent' | 'system' | 'dispatcher' | 'process';
+  role: 'user' | 'agent' | 'system' | 'dispatcher' | 'process' | 'skill';
   agentSlug?: string;
   agentName?: string;
   content: string;
   messageType?: string;
   timestamp: Date;
+  skillData?: {
+    sessionId?: string;
+    interactionType?: string;
+    payload?: any;
+    prompt?: any;
+  };
 }
 
 interface ConversationSummary {
@@ -196,76 +202,63 @@ const tableStyles: Record<string, React.CSSProperties> = {
 };
 
 // ============================================================
-// 调用后端 Chat API
+// SSE 流式调用后端 Chat API
 // ============================================================
-interface ApiMessage {
-  role: string;
-  agent_slug: string;
-  agent_name: string;
-  content: string;
-  usage?: { input_tokens: number; output_tokens: number; total_tokens: number };
-  message_type?: string;
-  movement?: { agent_id: string; room_id: string } | null;
+interface SSEEvent {
+  type: string;
+  data: any;
 }
 
-async function sendToBackend(
-  message: string,
-  history: { role: string; content: string }[],
-  conversationId?: string | null,
-): Promise<{
-  conversation_id: string;
-  messages: ApiMessage[];
-  agent_movements: Array<{ agent_id: string; room_id: string }>;
-}> {
-  const res = await fetch('/api/v1/office/chat', {
+/**
+ * 通过 SSE 流式调用后端聊天接口。
+ * 每收到一个事件立即调用 onEvent 回调，实现实时推送。
+ */
+async function streamChat(
+  url: string,
+  body: Record<string, any>,
+  onEvent: (event: SSEEvent) => void,
+): Promise<void> {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      history,
-      conversation_id: conversationId || undefined,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
   }
 
-  const envelope = await res.json();
-  return envelope.data;
-}
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
 
-async function sendDirectToBackend(
-  message: string,
-  agentSlug: string,
-  history: { role: string; content: string }[],
-  conversationId?: string | null,
-): Promise<{
-  conversation_id: string;
-  messages: ApiMessage[];
-  agent_movements: Array<{ agent_id: string; room_id: string }>;
-}> {
-  const res = await fetch('/api/v1/office/chat/direct', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      agent_slug: agentSlug,
-      history,
-      conversation_id: conversationId || undefined,
-    }),
-  });
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
 
-  if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    let currentEvent = '';
+    let currentData = '';
+
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice(7).trim();
+      } else if (line.startsWith('data: ')) {
+        currentData = line.slice(6);
+      } else if (line === '' && currentEvent && currentData) {
+        try {
+          onEvent({ type: currentEvent, data: JSON.parse(currentData) });
+        } catch {
+          // ignore parse errors
+        }
+        currentEvent = '';
+        currentData = '';
+      }
+    }
   }
-
-  const envelope = await res.json();
-  return envelope.data;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function formatRelativeTime(isoStr: string): string {
@@ -320,6 +313,16 @@ export const ChatBox: React.FC = () => {
   const [chatMode, setChatMode] = useState<ChatMode>('group');
   const [directAgent, setDirectAgent] = useState<string>(getDirectChatAgents()[0]?.slug || '');
   const [showAgentPicker, setShowAgentPicker] = useState(false);
+
+  // Skill 会话状态
+  const [activeSkillSession, setActiveSkillSession] = useState<string | null>(null);
+  const activeSkillSessionRef = useRef<string | null>(null);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [skillResponding, setSkillResponding] = useState(false);
+
+  useEffect(() => {
+    activeSkillSessionRef.current = activeSkillSession;
+  }, [activeSkillSession]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -418,118 +421,270 @@ export const ChatBox: React.FC = () => {
     }
   }, [conversationId, startNewConversation]);
 
-  // 发送消息到后端
+  // 发送消息到后端（SSE 流式）
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || sending) return;
 
-    // 显示用户消息
     addMessage({ role: 'user', content: trimmed });
     setInput('');
     setShowMention(false);
     setSending(true);
 
-    // 加入历史
     historyRef.current.push({ role: 'user', content: trimmed });
 
-    // 显示等待状态
-    const directAgentDef = chatMode === 'direct' ? agents.find((a) => a.slug === directAgent) : null;
-    const waitingMsg = chatMode === 'direct'
-      ? `${directAgentDef?.name || directAgent} 正在思考…`
-      : '调度员正在分析…';
-    addMessage({ role: 'system', content: waitingMsg });
+    // 跟踪本轮活跃的 agent slugs，用于最后重置状态
+    const activeAgentSlugs = new Set<string>();
+
+    const url = chatMode === 'direct'
+      ? '/api/v1/office/chat/direct/stream'
+      : '/api/v1/office/chat/stream';
+
+    const body: Record<string, any> = {
+      message: trimmed,
+      history: historyRef.current.slice(-10),
+      conversation_id: conversationId || undefined,
+    };
+    if (chatMode === 'direct') {
+      body.agent_slug = directAgent;
+    }
 
     try {
-      const data = chatMode === 'direct'
-        ? await sendDirectToBackend(trimmed, directAgent, historyRef.current.slice(-10), conversationId)
-        : await sendToBackend(trimmed, historyRef.current.slice(-10), conversationId);
+      await streamChat(url, body, (event) => {
+        switch (event.type) {
+          case 'init':
+            if (event.data.conversation_id && !conversationId) {
+              setConversationId(event.data.conversation_id);
+            }
+            break;
 
-      // 后端返回的 conversation_id（首次对话时由后端生成）
-      if (data.conversation_id && !conversationId) {
-        setConversationId(data.conversation_id);
-      }
+          case 'routing':
+          case 'process': {
+            const d = event.data;
+            if (d.agent_slug) {
+              activeAgentSlugs.add(d.agent_slug);
+              EventBus.emit('agent:status', { agentSlug: d.agent_slug, status: 'working' });
+            }
+            if (d.movement) {
+              EventBus.emit('chat:agent-move', {
+                agentId: d.movement.agent_id,
+                roomId: d.movement.room_id,
+              });
+            }
+            addMessage({
+              role: event.type === 'routing' ? 'agent' : 'process',
+              agentSlug: d.agent_slug,
+              agentName: d.agent_name,
+              content: d.content,
+              messageType: d.message_type,
+            });
+            if (d.agent_slug) {
+              EventBus.emit('chat:agent-bubble', {
+                agentSlug: d.agent_slug,
+                text: d.content,
+                duration: 10000,
+              });
+            }
+            break;
+          }
 
-      // 移除等待提示
-      setMessages((prev) => prev.filter((m) => m.content !== waitingMsg));
+          case 'message': {
+            const d = event.data;
+            if (d.agent_slug) {
+              activeAgentSlugs.add(d.agent_slug);
+              EventBus.emit('agent:status', { agentSlug: d.agent_slug, status: 'working' });
+            }
+            if (d.movement) {
+              EventBus.emit('chat:agent-move', {
+                agentId: d.movement.agent_id,
+                roomId: d.movement.room_id,
+              });
+            }
+            addMessage({
+              role: 'agent',
+              agentSlug: d.agent_slug,
+              agentName: d.agent_name,
+              content: d.content,
+              messageType: d.message_type,
+            });
+            if (d.agent_slug) {
+              EventBus.emit('chat:agent-bubble', {
+                agentSlug: d.agent_slug,
+                text: d.content,
+                duration: 10000,
+              });
+            }
+            if (d.usage && d.agent_slug) {
+              EventBus.emit('agent:token-usage', {
+                agentSlug: d.agent_slug,
+                tokens: d.usage.total_tokens || 0,
+              });
+            }
+            historyRef.current.push({ role: 'assistant', content: d.content });
+            break;
+          }
 
-      // 顺序播放消息 — 模拟 Agent 协作过程
-      for (let i = 0; i < data.messages.length; i++) {
-        const msg = data.messages[i];
-        const isProcess = msg.message_type === 'process';
+          case 'done':
+            // 所有活跃 Agent 恢复空闲
+            for (const slug of activeAgentSlugs) {
+              EventBus.emit('agent:status', { agentSlug: slug, status: 'idle' });
+            }
+            EventBus.emit('chat:round-complete');
+            loadConversations();
+            break;
 
-        // 更新 Agent 状态为"工作中"
-        if (msg.agent_slug) {
-          EventBus.emit('agent:status', { agentSlug: msg.agent_slug, status: 'working' });
+          case 'error':
+            addMessage({
+              role: 'system',
+              content: event.data.content || '调度员暂时无法响应',
+            });
+            break;
+
+          // Skill 事件处理
+          case 'skill_start': {
+            const d = event.data;
+            setActiveSkillSession(d.session_id);
+            addMessage({
+              role: 'skill',
+              agentSlug: d.agent_slug,
+              content: `🔍 ${d.display_name} 技能启动中...`,
+              messageType: 'skill_start',
+              skillData: { sessionId: d.session_id },
+            });
+            break;
+          }
+
+          case 'skill_interact': {
+            const d = event.data;
+            if (d.interaction_type === 'search_results') {
+              addMessage({
+                role: 'skill',
+                content: d.content || '搜索完成',
+                messageType: 'skill_search_results',
+                skillData: {
+                  sessionId: d.session_id || activeSkillSessionRef.current,
+                  interactionType: 'search_results',
+                  payload: d.payload,
+                },
+              });
+            } else if (d.interaction_type === 'awaiting_user') {
+              addMessage({
+                role: 'skill',
+                content: d.prompt?.message || '请选择要对比的商品',
+                messageType: 'skill_awaiting_user',
+                skillData: {
+                  sessionId: d.session_id || activeSkillSessionRef.current,
+                  interactionType: 'awaiting_user',
+                  prompt: d.prompt,
+                },
+              });
+            } else if (d.interaction_type === 'comparison_result') {
+              addMessage({
+                role: 'skill',
+                content: d.content || '比价分析完成',
+                messageType: 'skill_comparison_result',
+                skillData: {
+                  sessionId: d.session_id,
+                  interactionType: 'comparison_result',
+                  payload: d.payload,
+                },
+              });
+            }
+            break;
+          }
+
+          case 'skill_done': {
+            setActiveSkillSession(null);
+            setSelectedProducts([]);
+            break;
+          }
+
+          case 'skill_error':
+            setActiveSkillSession(null);
+            addMessage({
+              role: 'system',
+              content: `技能执行错误: ${event.data.error || '未知错误'}`,
+            });
+            break;
         }
-
-        // 触发地图上的 Agent 移动
-        if (msg.movement) {
-          EventBus.emit('chat:agent-move', {
-            agentId: msg.movement.agent_id,
-            roomId: msg.movement.room_id,
-          });
-        }
-
-        // 添加消息到聊天面板
-        addMessage({
-          role: isProcess ? 'process' : 'agent',
-          agentSlug: msg.agent_slug,
-          agentName: msg.agent_name,
-          content: msg.content,
-          messageType: msg.message_type,
-        });
-
-        // Agent 头顶显示对话气泡（持续 10 秒）
-        if (msg.agent_slug) {
-          EventBus.emit('chat:agent-bubble', {
-            agentSlug: msg.agent_slug,
-            text: msg.content,
-            duration: 10000,
-          });
-        }
-
-        // 上报 Token 用量
-        if (msg.usage && msg.agent_slug) {
-          EventBus.emit('agent:token-usage', {
-            agentSlug: msg.agent_slug,
-            tokens: msg.usage.total_tokens || 0,
-          });
-        }
-
-        // 非 process 消息加入对话历史
-        if (!isProcess) {
-          historyRef.current.push({ role: 'assistant', content: msg.content });
-        }
-
-        // 消息之间延迟，让用户看到协作过程
-        if (i < data.messages.length - 1) {
-          await delay(2500);
-        }
-      }
-
-      // 所有 Agent 恢复空闲状态
-      for (const msg of data.messages) {
-        if (msg.agent_slug) {
-          EventBus.emit('agent:status', { agentSlug: msg.agent_slug, status: 'idle' });
-        }
-      }
-
-      // 通知状态栏从数据库重新同步成本数据
-      EventBus.emit('chat:round-complete');
-
-      // 刷新会话列表
-      loadConversations();
+      });
     } catch (err) {
-      // 移除"正在分析"提示
-      setMessages((prev) => prev.filter((m) => m.content !== '调度员正在分析…'));
       addMessage({
         role: 'system',
         content: `连接失败: ${err instanceof Error ? err.message : '未知错误'}。请确认后端已启动。`,
       });
     } finally {
+      // 确保所有 Agent 恢复空闲
+      for (const slug of activeAgentSlugs) {
+        EventBus.emit('agent:status', { agentSlug: slug, status: 'idle' });
+      }
       setSending(false);
     }
-  }, [input, sending, addMessage, conversationId, loadConversations]);
+  }, [input, sending, addMessage, conversationId, chatMode, directAgent, agents, loadConversations]);
+
+  // Skill 商品选择切换
+  const toggleProductSelection = useCallback((productId: string) => {
+    setSelectedProducts((prev) => {
+      if (prev.includes(productId)) return prev.filter((id) => id !== productId);
+      if (prev.length >= 4) return prev; // 最多4个
+      return [...prev, productId];
+    });
+  }, []);
+
+  // Skill 用户响应（提交选择的商品）
+  const handleSkillRespond = useCallback(async () => {
+    if (!activeSkillSession || selectedProducts.length < 2 || skillResponding) return;
+
+    setSkillResponding(true);
+    addMessage({
+      role: 'user',
+      content: `已选择 ${selectedProducts.length} 个商品进行对比`,
+    });
+
+    try {
+      await streamChat(
+        `/api/v1/office/skills/sessions/${activeSkillSession}/respond`,
+        { user_input: { product_ids: selectedProducts } },
+        (event) => {
+          switch (event.type) {
+            case 'skill_interact': {
+              const d = event.data;
+              if (d.interaction_type === 'comparison_result') {
+                addMessage({
+                  role: 'skill',
+                  content: d.content || '比价分析完成',
+                  messageType: 'skill_comparison_result',
+                  skillData: {
+                    interactionType: 'comparison_result',
+                    payload: d.payload,
+                  },
+                });
+              }
+              break;
+            }
+            case 'skill_done':
+              setActiveSkillSession(null);
+              setSelectedProducts([]);
+              break;
+            case 'skill_error':
+              setActiveSkillSession(null);
+              addMessage({
+                role: 'system',
+                content: `比价分析失败: ${event.data.error || '未知错误'}`,
+              });
+              break;
+          }
+        },
+      );
+    } catch (err) {
+      addMessage({
+        role: 'system',
+        content: `响应失败: ${err instanceof Error ? err.message : '未知错误'}`,
+      });
+    } finally {
+      setSkillResponding(false);
+    }
+  }, [activeSkillSession, selectedProducts, skillResponding, addMessage]);
 
   // 文件上传（接受 File 对象）
   const uploadFile = useCallback(async (file: File) => {
@@ -915,6 +1070,133 @@ export const ChatBox: React.FC = () => {
                 </span>
                 {' '}{msg.content}
               </div>
+            ) : msg.role === 'skill' ? (
+              <div>
+                {msg.messageType === 'skill_start' && (
+                  <div style={skillStyles.startMsg}>{msg.content}</div>
+                )}
+                {msg.messageType === 'skill_search_results' && msg.skillData?.payload && (
+                  <div style={skillStyles.resultsContainer}>
+                    <div style={skillStyles.resultsHeader}>
+                      {msg.content}
+                    </div>
+                    {Object.entries(msg.skillData.payload.results as Record<string, any[]>).map(
+                      ([platform, products]) => (
+                        <div key={platform} style={skillStyles.platformGroup}>
+                          <div style={skillStyles.platformLabel}>{platform}</div>
+                          {products.map((p: any) => {
+                            const isSelected = selectedProducts.includes(p.product_id);
+                            return (
+                              <div
+                                key={p.product_id}
+                                onClick={() => toggleProductSelection(p.product_id)}
+                                style={{
+                                  ...skillStyles.productCard,
+                                  borderColor: isSelected ? '#ffd700' : '#333',
+                                  background: isSelected
+                                    ? 'rgba(255, 215, 0, 0.08)'
+                                    : 'rgba(255, 255, 255, 0.03)',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <div style={skillStyles.productHeader}>
+                                  <span style={skillStyles.checkbox}>
+                                    {isSelected ? '☑' : '☐'}
+                                  </span>
+                                  <span style={skillStyles.productName}>{p.name}</span>
+                                </div>
+                                <div style={skillStyles.productMeta}>
+                                  <span style={skillStyles.productPrice}>
+                                    ¥{p.price}
+                                  </span>
+                                  {p.original_price > p.price && (
+                                    <span style={skillStyles.originalPrice}>
+                                      ¥{p.original_price}
+                                    </span>
+                                  )}
+                                  <span style={skillStyles.productRating}>
+                                    {p.rating} ({(p.review_count / 1000).toFixed(1)}k评)
+                                  </span>
+                                </div>
+                                {p.promotions?.length > 0 && (
+                                  <div style={skillStyles.promotions}>
+                                    {p.promotions.map((promo: string, i: number) => (
+                                      <span key={i} style={skillStyles.promoTag}>{promo}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ),
+                    )}
+                  </div>
+                )}
+                {msg.messageType === 'skill_awaiting_user' && activeSkillSession && (
+                  <div style={skillStyles.actionBar}>
+                    <span style={{ color: '#aaa', fontSize: 12 }}>
+                      已选 {selectedProducts.length}/4 个商品
+                    </span>
+                    <button
+                      onClick={handleSkillRespond}
+                      disabled={selectedProducts.length < 2 || skillResponding}
+                      style={{
+                        ...skillStyles.compareBtn,
+                        opacity: selectedProducts.length < 2 || skillResponding ? 0.4 : 1,
+                      }}
+                    >
+                      {skillResponding ? '分析中...' : `对比 (${selectedProducts.length})`}
+                    </button>
+                  </div>
+                )}
+                {msg.messageType === 'skill_comparison_result' && msg.skillData?.payload && (
+                  <div style={skillStyles.comparisonCard}>
+                    <div style={skillStyles.comparisonHeader}>
+                      {msg.skillData.payload.type_label || '比价结论'}
+                    </div>
+                    <div style={skillStyles.recommendation}>
+                      {msg.skillData.payload.recommendation}
+                    </div>
+                    <div style={skillStyles.priceRange}>
+                      <div style={skillStyles.priceItem}>
+                        <span style={{ color: '#888' }}>最低价</span>
+                        <span style={skillStyles.lowPrice}>
+                          ¥{msg.skillData.payload.price_range.min}
+                        </span>
+                      </div>
+                      <div style={skillStyles.priceItem}>
+                        <span style={{ color: '#888' }}>最高价</span>
+                        <span style={{ color: '#ff6b6b', fontSize: 18 }}>
+                          ¥{msg.skillData.payload.price_range.max}
+                        </span>
+                      </div>
+                      {msg.skillData.payload.price_range.savings > 0 && (
+                        <div style={skillStyles.priceItem}>
+                          <span style={{ color: '#888' }}>可省</span>
+                          <span style={{ color: '#ffd700', fontSize: 18, fontWeight: 'bold' }}>
+                            ¥{msg.skillData.payload.price_range.savings}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {msg.skillData.payload.promotions_summary && (
+                      <div style={skillStyles.promoSummary}>
+                        {Object.entries(msg.skillData.payload.promotions_summary).map(
+                          ([platform, promos]) => (
+                            <div key={platform} style={{ marginBottom: 4 }}>
+                              <span style={{ color: '#ffd700', fontSize: 11 }}>{platform}: </span>
+                              <span style={{ color: '#aaa', fontSize: 11 }}>
+                                {(promos as string[]).join('、')}
+                              </span>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <div>
                 <div style={{ ...styles.senderLabel, color: getAgentColor(msg.agentSlug) }}>
@@ -1275,5 +1557,165 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#888',
     marginTop: '6px',
     fontFamily: 'monospace',
+  },
+};
+
+// ============================================================
+// Skill UI 样式
+// ============================================================
+const skillStyles: Record<string, React.CSSProperties> = {
+  startMsg: {
+    fontSize: 13,
+    color: '#ffd700',
+    padding: '6px 10px',
+    borderLeft: '3px solid #ffd700',
+    background: 'rgba(255, 215, 0, 0.05)',
+    fontStyle: 'italic',
+  },
+  resultsContainer: {
+    border: '1px solid #444',
+    borderRadius: 6,
+    overflow: 'hidden',
+    background: 'rgba(0, 0, 0, 0.2)',
+  },
+  resultsHeader: {
+    padding: '8px 12px',
+    fontSize: 13,
+    color: '#ffd700',
+    fontWeight: 'bold',
+    background: 'rgba(255, 215, 0, 0.08)',
+    borderBottom: '1px solid #333',
+  },
+  platformGroup: {
+    borderBottom: '1px solid #333',
+  },
+  platformLabel: {
+    padding: '6px 12px',
+    fontSize: 12,
+    color: '#ff9f43',
+    fontWeight: 'bold',
+    background: 'rgba(255, 159, 67, 0.06)',
+  },
+  productCard: {
+    padding: '8px 12px',
+    borderBottom: '1px solid #2a2a2a',
+    border: '1px solid #333',
+    margin: '4px 8px',
+    borderRadius: 4,
+    transition: 'border-color 0.15s, background 0.15s',
+  },
+  productHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  checkbox: {
+    fontSize: 16,
+    color: '#ffd700',
+    flexShrink: 0,
+    marginTop: 1,
+  },
+  productName: {
+    fontSize: 13,
+    color: '#e0e0e0',
+    lineHeight: '1.4',
+  },
+  productMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 4,
+    paddingLeft: 24,
+  },
+  productPrice: {
+    color: '#ff6b6b',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  originalPrice: {
+    color: '#666',
+    fontSize: 12,
+    textDecoration: 'line-through',
+  },
+  productRating: {
+    color: '#888',
+    fontSize: 11,
+  },
+  promotions: {
+    display: 'flex',
+    flexWrap: 'wrap' as const,
+    gap: 4,
+    marginTop: 4,
+    paddingLeft: 24,
+  },
+  promoTag: {
+    fontSize: 10,
+    color: '#ff9f43',
+    background: 'rgba(255, 159, 67, 0.1)',
+    border: '1px solid rgba(255, 159, 67, 0.25)',
+    borderRadius: 3,
+    padding: '1px 5px',
+  },
+  actionBar: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 12px',
+    background: 'rgba(255, 215, 0, 0.05)',
+    borderRadius: 4,
+    border: '1px dashed #555',
+  },
+  compareBtn: {
+    background: 'rgba(255, 215, 0, 0.2)',
+    border: '1px solid #ffd700',
+    borderRadius: 4,
+    color: '#ffd700',
+    padding: '6px 16px',
+    cursor: 'pointer',
+    fontFamily: 'monospace',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  comparisonCard: {
+    border: '2px solid #ffd700',
+    borderRadius: 8,
+    overflow: 'hidden',
+    background: 'rgba(255, 215, 0, 0.03)',
+  },
+  comparisonHeader: {
+    padding: '10px 14px',
+    fontSize: 14,
+    color: '#ffd700',
+    fontWeight: 'bold',
+    background: 'rgba(255, 215, 0, 0.1)',
+    borderBottom: '1px solid rgba(255, 215, 0, 0.2)',
+  },
+  recommendation: {
+    padding: '12px 14px',
+    fontSize: 13,
+    color: '#e0e0e0',
+    lineHeight: '1.6',
+    borderBottom: '1px solid #333',
+  },
+  priceRange: {
+    display: 'flex',
+    justifyContent: 'space-around',
+    padding: '12px 14px',
+    borderBottom: '1px solid #333',
+  },
+  priceItem: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    gap: 4,
+  },
+  lowPrice: {
+    color: '#4ade80',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  promoSummary: {
+    padding: '8px 14px',
+    fontSize: 11,
   },
 };
