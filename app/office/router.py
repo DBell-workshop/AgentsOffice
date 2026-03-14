@@ -36,29 +36,78 @@ class ChatRequest(BaseModel):
     history: List[Dict[str, str]] = Field(default_factory=list)
 
 
+class DirectChatRequest(BaseModel):
+    message: str
+    agent_slug: str
+    conversation_id: Optional[str] = None
+    history: List[Dict[str, str]] = Field(default_factory=list)
+
+
 @router.post("/chat")
-def chat(payload: ChatRequest) -> ApiEnvelope:
+async def chat(payload: ChatRequest) -> ApiEnvelope:
     """用户发送消息，调度员路由到合适的 Agent 处理。"""
     trace_id = make_id("trc")
     conversation_id = payload.conversation_id or make_id("conv")
 
     try:
-        from app.services.dispatcher import dispatch
+        from app.services.agents import dispatch
 
-        # 读取 per-agent 模型配置
-        agent_models = {}
+        # 读取 per-agent 模型配置（含 api_base / api_key）
+        agent_models: Dict[str, Dict[str, str]] = {}
         try:
             if office_store is not None:
                 agent_models = office_store.get_agent_model_configs()
         except Exception:
             pass  # 未配置时使用默认模型
 
-        result = dispatch(
+        # 持久化：如果是新会话，先创建
+        is_new_conv = payload.conversation_id is None
+        if is_new_conv and office_store is not None:
+            try:
+                office_store.create_conversation(conversation_id)
+            except Exception:
+                logger.warning("Failed to create conversation record")
+
+        # 持久化用户消息
+        if office_store is not None:
+            try:
+                office_store.add_chat_message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=payload.message,
+                )
+            except Exception:
+                logger.warning("Failed to persist user message")
+
+        # 调度员模型从 agent_models dict 中提取
+        dispatcher_cfg = agent_models.get("dispatcher", {})
+        dispatcher_model = dispatcher_cfg.get("model_name") if dispatcher_cfg else None
+
+        result = await dispatch(
             user_message=payload.message,
             conversation_history=payload.history or None,
-            dispatcher_model=agent_models.get("dispatcher"),
+            dispatcher_model=dispatcher_model,
             agent_models=agent_models,
         )
+
+        # 持久化 Agent 回复消息
+        if office_store is not None:
+            for msg in result.get("messages", []):
+                try:
+                    office_store.add_chat_message(
+                        conversation_id=conversation_id,
+                        role=msg.get("role", "agent"),
+                        content=msg.get("content", ""),
+                        agent_slug=msg.get("agent_slug"),
+                        agent_name=msg.get("agent_name"),
+                        message_type=msg.get("message_type"),
+                        metadata={
+                            k: v for k, v in msg.items()
+                            if k in ("usage", "movement")
+                        },
+                    )
+                except Exception:
+                    logger.warning("Failed to persist agent message")
 
         return _envelope(
             trace_id=trace_id,
@@ -82,6 +131,111 @@ def chat(payload: ChatRequest) -> ApiEnvelope:
                         "content": f"调度员暂时无法响应，请稍后再试。错误: {str(e)[:200]}",
                     }
                 ],
+                "agent_movements": [],
+            },
+            error=str(e)[:200],
+        )
+
+
+@router.post("/chat/direct")
+async def chat_direct(payload: DirectChatRequest) -> ApiEnvelope:
+    """一对一私聊：绕过调度员，直接和指定 Agent 对话。"""
+    trace_id = make_id("trc")
+    conversation_id = payload.conversation_id or make_id("conv")
+
+    try:
+        from app.services.agents import run_agent, load_agent_registry, BUILTIN_AGENTS
+
+        # 加载 Agent 定义
+        registry = load_agent_registry()
+        agent_defn = registry.get(payload.agent_slug)
+        if not agent_defn:
+            raise HTTPException(status_code=404, detail=f"Agent '{payload.agent_slug}' not found")
+
+        # 读取 per-agent 模型配置
+        agent_api_base = None
+        agent_api_key = None
+        target_model = None
+        if office_store is not None:
+            try:
+                agent_models = office_store.get_agent_model_configs()
+                if payload.agent_slug in agent_models:
+                    ac = agent_models[payload.agent_slug]
+                    target_model = ac.get("model_name") or None
+                    agent_api_base = ac.get("api_base") or None
+                    agent_api_key = ac.get("api_key") or None
+            except Exception:
+                pass
+        target_model = target_model or agent_defn.get("model_name")
+
+        # 持久化会话和用户消息
+        is_new_conv = payload.conversation_id is None
+        if is_new_conv and office_store is not None:
+            try:
+                agent_name = agent_defn.get("display_name", payload.agent_slug)
+                office_store.create_conversation(conversation_id, title=f"与{agent_name}的私聊")
+            except Exception:
+                logger.warning("Failed to create direct conversation")
+
+        if office_store is not None:
+            try:
+                office_store.add_chat_message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=payload.message,
+                )
+            except Exception:
+                logger.warning("Failed to persist user message")
+
+        # 直接调用 Agent（不经过调度员）
+        result = await run_agent(
+            agent_slug=payload.agent_slug,
+            agent_defn=agent_defn,
+            user_message=payload.message,
+            task_summary=payload.message,
+            conversation_history=payload.history or None,
+            model=target_model,
+            api_base=agent_api_base,
+            api_key=agent_api_key,
+        )
+
+        # 持久化 Agent 回复
+        if office_store is not None:
+            for msg in result.get("messages", []):
+                try:
+                    office_store.add_chat_message(
+                        conversation_id=conversation_id,
+                        role=msg.get("role", "agent"),
+                        content=msg.get("content", ""),
+                        agent_slug=msg.get("agent_slug"),
+                        agent_name=msg.get("agent_name"),
+                        message_type=msg.get("message_type"),
+                    )
+                except Exception:
+                    logger.warning("Failed to persist agent message")
+
+        return _envelope(
+            trace_id=trace_id,
+            data={
+                "conversation_id": conversation_id,
+                "messages": result["messages"],
+                "agent_movements": [],
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Direct chat failed")
+        return _envelope(
+            trace_id=trace_id,
+            data={
+                "conversation_id": conversation_id,
+                "messages": [{
+                    "role": "system",
+                    "agent_slug": "system",
+                    "agent_name": "系统",
+                    "content": f"Agent 暂时无法响应: {str(e)[:200]}",
+                }],
                 "agent_movements": [],
             },
             error=str(e)[:200],
@@ -233,6 +387,70 @@ def unbind_skill(agent_id: str, skill_id: str) -> ApiEnvelope:
 
 
 # ================================================================
+# Agent 模板 API
+# ================================================================
+
+@router.get("/agent-templates")
+def get_agent_templates() -> ApiEnvelope:
+    """返回所有预设 Agent 模板，供用户创建新 Agent 时选择。"""
+    from app.services.agents import BUILTIN_AGENTS
+
+    trace_id = make_id("trc")
+    templates = []
+    for slug, defn in BUILTIN_AGENTS.items():
+        templates.append({
+            "slug": slug,
+            "display_name": defn.get("display_name", slug),
+            "role": defn.get("role", ""),
+            "color": defn.get("color", "#cccccc"),
+            "room_id": defn.get("room_id", "workspace"),
+            "system_prompt": defn.get("system_prompt", ""),
+            "tools": defn.get("tools", ""),
+        })
+    # 也加入调度员作为模板
+    templates.insert(0, {
+        "slug": "dispatcher",
+        "display_name": "调度员",
+        "role": "任务调度，理解用户需求并分配给合适的 Agent",
+        "color": "#ff6b6b",
+        "room_id": "manager",
+        "system_prompt": "",
+        "tools": "",
+    })
+    return _envelope(trace_id=trace_id, data={"templates": templates})
+
+
+# ================================================================
+# Agent 注册表 API（前端唯一数据源）
+# ================================================================
+
+@router.get("/agent-registry")
+def get_agent_registry() -> ApiEnvelope:
+    """返回完整 Agent 注册表（含 dispatcher），作为前端所有组件的唯一数据源。
+
+    合并 BUILTIN_AGENTS + DB 自定义配置，返回前端渲染所需的全部字段。
+    前端 ChatBox、OfficeScene、AgentStatusBar 均从此接口加载 Agent 列表。
+    """
+    from app.services.agents import get_full_registry
+
+    trace_id = make_id("trc")
+    registry = get_full_registry()
+
+    agents = []
+    for slug, defn in registry.items():
+        agents.append({
+            "slug": slug,
+            "display_name": defn.get("display_name", slug),
+            "role": defn.get("role", ""),
+            "color": defn.get("color", "#cccccc"),
+            "room_id": defn.get("room_id", "workspace"),
+            "phaser_agent_id": defn.get("phaser_agent_id", ""),
+            "is_dispatcher": defn.get("is_dispatcher", False),
+        })
+    return _envelope(trace_id=trace_id, data={"agents": agents})
+
+
+# ================================================================
 # Agent 配置 API（per-agent 模型/参数配置）
 # ================================================================
 
@@ -241,6 +459,8 @@ class AgentConfigPayload(BaseModel):
     model_name: str = ""
     temperature: float = 0.7
     max_tokens: int = 2048
+    api_base: Optional[str] = None
+    api_key: Optional[str] = None
     # 身份定义
     display_name: Optional[str] = None
     role: Optional[str] = None
@@ -260,7 +480,7 @@ def get_agent_config() -> ApiEnvelope:
     db_configs = store.get_all_agent_configs()
 
     # 从 dispatcher 加载 BUILTIN 定义，补充 DB 中缺失的 agent
-    from app.services.dispatcher import BUILTIN_AGENTS
+    from app.services.agents import BUILTIN_AGENTS
     from app.config import settings
 
     merged: Dict[str, Any] = {}
@@ -298,6 +518,10 @@ def update_agent_config(slug: str, payload: AgentConfigPayload) -> ApiEnvelope:
         "temperature": payload.temperature,
         "max_tokens": payload.max_tokens,
     }
+    if payload.api_base is not None:
+        config["api_base"] = payload.api_base
+    if payload.api_key is not None:
+        config["api_key"] = payload.api_key
     # 只传入非 None 的身份字段
     if payload.display_name is not None:
         config["display_name"] = payload.display_name
@@ -674,6 +898,18 @@ def list_uploads() -> ApiEnvelope:
     return _envelope(trace_id=trace_id, data={"files": files, "total": len(files)})
 
 
+@router.get("/uploads/{file_name}/preview")
+def preview_uploaded_file(file_name: str) -> ApiEnvelope:
+    """预览已上传文件的 schema 和前几行数据。"""
+    trace_id = make_id("trc")
+    from app.services.data_engineer import UPLOAD_DIR, parse_file
+    file_path = UPLOAD_DIR / file_name
+    if not file_path.exists():
+        return _envelope(trace_id=trace_id, data={"error": f"文件不存在: {file_name}"})
+    result = parse_file(str(file_path))
+    return _envelope(trace_id=trace_id, data=result)
+
+
 @router.get("/user-tables")
 def list_user_tables_api() -> ApiEnvelope:
     """列出用户创建的所有数据表。"""
@@ -681,6 +917,75 @@ def list_user_tables_api() -> ApiEnvelope:
     from app.services.data_engineer import list_user_tables
     result = list_user_tables()
     return _envelope(trace_id=trace_id, data=result)
+
+
+@router.get("/user-tables/{table_name}/data")
+def query_user_table_data(
+    table_name: str,
+    limit: int = Query(50, ge=1, le=500),
+) -> ApiEnvelope:
+    """查询用户表数据（仅允许 ud_ 前缀表）。"""
+    trace_id = make_id("trc")
+    from app.services.data_engineer import query_data
+    result = query_data(table_name, limit=limit)
+    return _envelope(trace_id=trace_id, data=result)
+
+
+# ================================================================
+# Conversation History API
+# ================================================================
+
+@router.get("/conversations")
+def list_conversations(
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> ApiEnvelope:
+    """列出所有活跃会话（按最近更新排序）。"""
+    trace_id = make_id("trc")
+    store = _require_store()
+    items = store.list_conversations(limit=limit, offset=offset)
+    return _envelope(trace_id=trace_id, data={"conversations": items, "total": len(items)})
+
+
+@router.get("/conversations/{conversation_id}")
+def get_conversation(conversation_id: str) -> ApiEnvelope:
+    """获取单个会话及其所有消息。"""
+    trace_id = make_id("trc")
+    store = _require_store()
+    result = store.get_conversation_messages(conversation_id)
+    if result is None:
+        return _envelope(trace_id=trace_id, data={}, error="会话不存在")
+    return _envelope(trace_id=trace_id, data=result)
+
+
+class ConversationUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+
+
+@router.put("/conversations/{conversation_id}")
+def update_conversation(conversation_id: str, payload: ConversationUpdateRequest) -> ApiEnvelope:
+    """更新会话（标题、状态等）。"""
+    trace_id = make_id("trc")
+    store = _require_store()
+    updates = {}
+    if payload.title is not None:
+        updates["title"] = payload.title
+    if payload.status is not None:
+        updates["status"] = payload.status
+    result = store.update_conversation(conversation_id, updates)
+    if result is None:
+        return _envelope(trace_id=trace_id, data={}, error="会话不存在")
+    return _envelope(trace_id=trace_id, data=result)
+
+
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str) -> ApiEnvelope:
+    """归档删除会话。"""
+    trace_id = make_id("trc")
+    store = _require_store()
+    ok = store.delete_conversation(conversation_id)
+    return _envelope(trace_id=trace_id, data={"deleted": ok})
 
 
 # ================================================================

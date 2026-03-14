@@ -180,6 +180,43 @@ class SkillRow(Base):
 
 # ---- 10. agent_skills (AgentsOffice) ----
 
+# (moved below)
+
+
+# ---- 13. conversations (AgentsOffice Chat History) ----
+
+class ConversationRow(Base):
+    __tablename__ = "conversations"
+
+    conversation_id = Column(Text, primary_key=True)
+    title = Column(Text, nullable=False, server_default="")
+    status = Column(Text, nullable=False, server_default="active")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'archived', 'deleted')"),
+    )
+
+
+# ---- 14. chat_messages (AgentsOffice Chat History) ----
+
+class ChatMessageRow(Base):
+    __tablename__ = "chat_messages"
+
+    message_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id = Column(Text, ForeignKey("conversations.conversation_id", ondelete="CASCADE"), nullable=False)
+    role = Column(Text, nullable=False)
+    agent_slug = Column(Text)
+    agent_name = Column(Text)
+    content = Column(Text, nullable=False, server_default="")
+    message_type = Column(Text)
+    extra_metadata = Column("metadata", JSONB, nullable=False, server_default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---- 10 (original). agent_skills (AgentsOffice) ----
+
 class AgentSkillRow(Base):
     __tablename__ = "agent_skills"
 

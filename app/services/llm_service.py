@@ -33,6 +33,8 @@ def chat_completion(
     temperature: float = 0.7,
     max_tokens: int = 2048,
     tools: Optional[List[Dict[str, Any]]] = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """同步调用 LLM，返回标准化结果。
 
@@ -42,6 +44,8 @@ def chat_completion(
         temperature: 生成温度
         max_tokens: 最大输出 token
         tools: Function Calling 工具定义（可选）
+        api_base: 自定义代理地址（如 one-api/new-api 等），可选
+        api_key: 自定义 API Key（配合 api_base 使用），可选
 
     Returns:
         {
@@ -61,9 +65,46 @@ def chat_completion(
     }
     if tools:
         kwargs["tools"] = tools
+    if api_base:
+        kwargs["api_base"] = api_base
+    if api_key:
+        kwargs["api_key"] = api_key
 
     response = litellm.completion(**kwargs)
+    return _parse_response(response, model)
 
+
+async def async_chat_completion(
+    messages: List[Dict[str, str]],
+    model: Optional[str] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 2048,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    api_base: Optional[str] = None,
+    api_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    """异步调用 LLM，返回标准化结果。参数与 chat_completion 相同。"""
+    model = model or settings.default_llm_model
+
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if tools:
+        kwargs["tools"] = tools
+    if api_base:
+        kwargs["api_base"] = api_base
+    if api_key:
+        kwargs["api_key"] = api_key
+
+    response = await litellm.acompletion(**kwargs)
+    return _parse_response(response, model)
+
+
+def _parse_response(response: Any, model: str) -> Dict[str, Any]:
+    """将 LiteLLM 响应解析为标准化 dict。"""
     choice = response.choices[0]
     usage = response.usage
 

@@ -14,6 +14,8 @@ from app.db.orm_models import (
     AgentEventRow,
     AgentRow,
     AgentSkillRow,
+    ChatMessageRow,
+    ConversationRow,
     CostRecordRow,
     ModelPricingRow,
     SkillRow,
@@ -222,15 +224,19 @@ class OfficeStore:
     # Per-Agent 模型配置
     # ================================================================
 
-    def get_agent_model_configs(self) -> Dict[str, str]:
-        """获取所有 Agent 的模型配置。返回 {agent_slug: model_name}。"""
+    def get_agent_model_configs(self) -> Dict[str, Dict[str, str]]:
+        """获取所有 Agent 的模型配置。返回 {agent_slug: {model_name, api_base, api_key}}。"""
         with self.SessionFactory() as session:
             rows = session.query(AgentRow).all()
-            result = {}
+            result: Dict[str, Dict[str, str]] = {}
             for row in rows:
                 cfg = row.model_config or {}
-                if cfg.get("model_name"):
-                    result[row.slug] = cfg["model_name"]
+                if cfg.get("model_name") or cfg.get("api_base"):
+                    result[row.slug] = {
+                        "model_name": cfg.get("model_name", ""),
+                        "api_base": cfg.get("api_base", ""),
+                        "api_key": cfg.get("api_key", ""),
+                    }
             return result
 
     def get_all_agent_configs(self) -> Dict[str, Dict[str, Any]]:
@@ -246,6 +252,8 @@ class OfficeStore:
                     "model_name": cfg.get("model_name", ""),
                     "temperature": cfg.get("temperature", 0.7),
                     "max_tokens": cfg.get("max_tokens", 2048),
+                    "api_base": cfg.get("api_base", ""),
+                    "api_key": cfg.get("api_key", ""),
                     # 身份定义
                     "display_name": meta.get("display_name", row.name),
                     "role": meta.get("role", row.description or ""),
@@ -262,7 +270,7 @@ class OfficeStore:
         from app.models import make_id
 
         # 分离模型配置和身份配置
-        model_fields = {"model_name", "temperature", "max_tokens"}
+        model_fields = {"model_name", "temperature", "max_tokens", "api_base", "api_key"}
         identity_fields = {"display_name", "role", "system_prompt", "color", "active"}
 
         model_cfg = {k: v for k, v in config.items() if k in model_fields}
@@ -553,6 +561,147 @@ class OfficeStore:
                 q = q.filter(AgentEventRow.trace_id == trace_id)
             q = q.order_by(AgentEventRow.created_at.desc()).offset(offset).limit(limit)
             return [self._event_row_to_dict(r) for r in q.all()]
+
+    # ================================================================
+    # Conversation & ChatMessage CRUD
+    # ================================================================
+
+    def create_conversation(self, conversation_id: str, title: str = "") -> Dict[str, Any]:
+        with self.SessionFactory() as session:
+            row = ConversationRow(conversation_id=conversation_id, title=title)
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return self._conversation_row_to_dict(row)
+
+    def list_conversations(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        with self.SessionFactory() as session:
+            q = (
+                session.query(ConversationRow)
+                .filter(ConversationRow.status == "active")
+                .order_by(ConversationRow.updated_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+            results = []
+            for row in q.all():
+                d = self._conversation_row_to_dict(row)
+                # 附带消息数量和最后一条消息预览
+                msg_count = (
+                    session.query(sa_func.count(ChatMessageRow.message_id))
+                    .filter(ChatMessageRow.conversation_id == row.conversation_id)
+                    .scalar()
+                ) or 0
+                last_msg = (
+                    session.query(ChatMessageRow)
+                    .filter(ChatMessageRow.conversation_id == row.conversation_id)
+                    .order_by(ChatMessageRow.created_at.desc())
+                    .first()
+                )
+                d["message_count"] = msg_count
+                d["last_message"] = last_msg.content[:80] if last_msg else ""
+                results.append(d)
+            return results
+
+    def get_conversation_messages(
+        self, conversation_id: str, limit: int = 200, offset: int = 0,
+    ) -> Optional[Dict[str, Any]]:
+        with self.SessionFactory() as session:
+            conv = session.get(ConversationRow, conversation_id)
+            if not conv:
+                return None
+            msgs = (
+                session.query(ChatMessageRow)
+                .filter(ChatMessageRow.conversation_id == conversation_id)
+                .order_by(ChatMessageRow.created_at.asc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            return {
+                **self._conversation_row_to_dict(conv),
+                "messages": [self._chat_message_row_to_dict(m) for m in msgs],
+            }
+
+    def add_chat_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        agent_slug: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        message_type: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        with self.SessionFactory() as session:
+            row = ChatMessageRow(
+                conversation_id=conversation_id,
+                role=role,
+                content=content,
+                agent_slug=agent_slug,
+                agent_name=agent_name,
+                message_type=message_type,
+                extra_metadata=metadata or {},
+            )
+            session.add(row)
+            # 更新会话的 updated_at
+            conv = session.get(ConversationRow, conversation_id)
+            if conv:
+                conv.updated_at = datetime.now(timezone.utc)
+                # 如果是第一条用户消息且标题为空，用消息内容作标题
+                if not conv.title and role == "user":
+                    conv.title = content[:50]
+            session.commit()
+            session.refresh(row)
+            return self._chat_message_row_to_dict(row)
+
+    def update_conversation(self, conversation_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        with self.SessionFactory() as session:
+            conv = session.get(ConversationRow, conversation_id)
+            if not conv:
+                return None
+            if "title" in data:
+                conv.title = data["title"]
+            if "status" in data:
+                conv.status = data["status"]
+            conv.updated_at = datetime.now(timezone.utc)
+            session.commit()
+            session.refresh(conv)
+            return self._conversation_row_to_dict(conv)
+
+    def delete_conversation(self, conversation_id: str) -> bool:
+        with self.SessionFactory() as session:
+            conv = session.get(ConversationRow, conversation_id)
+            if not conv:
+                return False
+            conv.status = "deleted"
+            conv.updated_at = datetime.now(timezone.utc)
+            session.commit()
+            return True
+
+    @staticmethod
+    def _conversation_row_to_dict(row: ConversationRow) -> Dict[str, Any]:
+        return {
+            "conversation_id": row.conversation_id,
+            "title": row.title or "",
+            "status": row.status,
+            "created_at": _dt_to_iso(row.created_at),
+            "updated_at": _dt_to_iso(row.updated_at),
+        }
+
+    @staticmethod
+    def _chat_message_row_to_dict(row: ChatMessageRow) -> Dict[str, Any]:
+        return {
+            "message_id": row.message_id,
+            "conversation_id": row.conversation_id,
+            "role": row.role,
+            "agent_slug": row.agent_slug,
+            "agent_name": row.agent_name,
+            "content": row.content,
+            "message_type": row.message_type,
+            "metadata": row.extra_metadata or {},
+            "created_at": _dt_to_iso(row.created_at),
+        }
 
     # ================================================================
     # 私有辅助方法
