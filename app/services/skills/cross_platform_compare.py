@@ -1,15 +1,19 @@
-"""跨平台商品比价 Skill — Phase 1 Mock 实现。
+"""跨平台商品比价 Skill — Phase 2: LLM 语义分析。
 
 状态机流程：
   INIT → on_start(query) → 搜索多平台 → yield 搜索结果 → AWAITING_USER
-  AWAITING_USER → on_resume(selected_ids) → 执行比价分析 → yield 比价结论 → DONE
+  AWAITING_USER → on_resume(selected_ids) → LLM 语义比价分析 → yield 比价结论 → DONE
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from typing import Any, Dict, List, Optional
 
 from app.services.skills.base import BaseSkill, SkillState, SkillStepResult
+
+log = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -125,20 +129,13 @@ def _all_mock_products() -> List[Dict[str, Any]]:
     return products
 
 
-def _build_comparison(selected_ids: List[str]) -> Dict[str, Any]:
-    """根据用户选择的商品构建比价结论。"""
-    all_products = _all_mock_products()
-    selected = [p for p in all_products if p["product_id"] in selected_ids]
-
-    if not selected:
-        return {"error": "未找到选择的商品"}
-
+def _build_comparison_fallback(selected: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """降级方案：纯算法比价（无 LLM 时使用）。"""
     selected.sort(key=lambda p: p["price"])
     cheapest = selected[0]
     most_expensive = selected[-1]
     savings = most_expensive["price"] - cheapest["price"]
 
-    # 语义对齐（Phase 1 简化：同品牌 = 同款）
     brands = {p["brand"] for p in selected}
     if len(brands) == 1:
         comparison_type = "same_product"
@@ -168,6 +165,116 @@ def _build_comparison(selected_ids: List[str]) -> Dict[str, Any]:
             + (f"，比最高价便宜 ¥{savings:.0f}" if savings > 0 else "")
             + "。"
         ),
+        "promotions_summary": {
+            p["platform"]: p["promotions"] for p in selected
+        },
+    }
+
+
+# ============================================================
+# LLM 语义比价分析（Phase 2）
+# ============================================================
+
+_COMPARISON_PROMPT = """\
+你是一位专业的电商比价分析师。用户选择了以下商品进行对比，请从语义层面分析它们的异同，并给出购买建议。
+
+## 待对比商品
+
+{products_text}
+
+## 分析要求
+
+1. **同款判断**：根据商品名称、品牌、容量/规格等语义信息，判断这些商品的关系：
+   - same_product：同一品牌同一型号，仅跨平台价格不同
+   - similar_products：同品类但不同品牌/不同型号，可横向对比
+   - different_products：品类差异较大，不建议直接对比
+
+2. **多维度对比**：从以下维度分析（仅分析有依据的维度）：
+   - 价格竞争力（含促销活动）
+   - 品牌口碑（基于评分和评价数量）
+   - 性价比综合评估
+
+3. **购买建议**：给出具体的推荐理由，不要只说"最便宜"
+
+## 输出格式
+
+请严格返回以下 JSON 格式（不要包含 markdown 代码块标记）：
+{{
+  "comparison_type": "same_product 或 similar_products 或 different_products",
+  "type_label": "对比类型的中文标题，如「美的小厨宝 5L 跨平台比价」或「小厨宝品牌横评」",
+  "recommendation": "2-3句话的购买建议，包含具体推荐商品、平台、理由",
+  "dimensions": [
+    {{
+      "name": "维度名称",
+      "summary": "该维度的对比结论"
+    }}
+  ]
+}}"""
+
+
+async def _build_comparison_with_llm(selected: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """LLM 语义比价分析：理解商品语义，多维度对比，生成购买建议。"""
+    from app.services.llm_service import async_chat_completion
+
+    # 构建商品描述文本
+    products_lines = []
+    for i, p in enumerate(selected, 1):
+        promos = "、".join(p.get("promotions", [])) or "无"
+        products_lines.append(
+            f"{i}. 【{p['platform']}】{p['name']}\n"
+            f"   品牌: {p['brand']} | 价格: ¥{p['price']} (原价 ¥{p.get('original_price', p['price'])})\n"
+            f"   促销: {promos} | 评分: {p.get('rating', '-')} | 评价数: {p.get('review_count', 0)}"
+        )
+    products_text = "\n".join(products_lines)
+
+    prompt = _COMPARISON_PROMPT.format(products_text=products_text)
+
+    try:
+        result = await async_chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=1024,
+        )
+
+        content = result.get("content", "").strip()
+        # 清理可能的 markdown 代码块标记
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1] if "\n" in content else content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+
+        llm_analysis = json.loads(content)
+    except (json.JSONDecodeError, KeyError, Exception) as e:
+        log.warning("LLM 比价分析失败，降级到算法方案: %s", e)
+        return _build_comparison_fallback(selected)
+
+    # 合并 LLM 语义分析 + 事实数据（价格排序、促销汇总）
+    selected_sorted = sorted(selected, key=lambda p: p["price"])
+    cheapest = selected_sorted[0]
+    most_expensive = selected_sorted[-1]
+    savings = most_expensive["price"] - cheapest["price"]
+
+    return {
+        "comparison_type": llm_analysis.get("comparison_type", "similar_products"),
+        "type_label": llm_analysis.get("type_label", "商品对比分析"),
+        "products": selected,
+        "cheapest": {
+            "product_id": cheapest["product_id"],
+            "name": cheapest["name"],
+            "platform": cheapest["platform"],
+            "price": cheapest["price"],
+        },
+        "price_range": {
+            "min": cheapest["price"],
+            "max": most_expensive["price"],
+            "savings": savings,
+        },
+        "recommendation": llm_analysis.get(
+            "recommendation",
+            _build_comparison_fallback(selected)["recommendation"],
+        ),
+        "dimensions": llm_analysis.get("dimensions", []),
         "promotions_summary": {
             p["platform"]: p["promotions"] for p in selected
         },
@@ -237,13 +344,24 @@ class CrossPlatformCompareSkill(BaseSkill):
         context: Dict[str, Any],
         user_input: Any,
     ) -> SkillStepResult:
-        """用户选择商品后执行比价分析。"""
+        """用户选择商品后执行 LLM 语义比价分析。"""
         selected_ids = user_input.get("product_ids", [])
 
-        # 模拟分析延迟
-        await asyncio.sleep(0.5)
+        all_products = _all_mock_products()
+        selected = [p for p in all_products if p["product_id"] in selected_ids]
 
-        comparison = _build_comparison(selected_ids)
+        if not selected:
+            return SkillStepResult(
+                next_state="error",
+                events=[
+                    {
+                        "event": "skill_error",
+                        "data": {"error": "未找到选择的商品"},
+                    },
+                ],
+            )
+
+        comparison = await _build_comparison_with_llm(selected)
 
         if "error" in comparison:
             return SkillStepResult(
