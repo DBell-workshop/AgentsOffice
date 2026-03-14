@@ -8,14 +8,14 @@
 - BUILTIN_AGENTS        — 内置 Agent 定义
 """
 from app.services.agents.definitions import BUILTIN_AGENTS, DISPATCHER_DEFINITION
-from app.services.agents.dispatcher import dispatch
+from app.services.agents.dispatcher import dispatch, dispatch_stream
 from app.services.agents.registry import (
     build_dispatcher_prompt,
     build_dispatcher_tools,
     get_full_registry,
     load_agent_registry,
 )
-from app.services.agents.runner import record_cost, run_agent
+from app.services.agents.runner import record_cost, run_agent, run_agent_stream
 from app.services.agents.tools import (
     DATA_ANALYST_TOOLS,
     DATA_ENGINEER_TOOLS,
@@ -35,10 +35,12 @@ __all__ = [
     "build_dispatcher_prompt",
     "build_dispatcher_tools",
     "dispatch",
+    "dispatch_stream",
     "execute_tool",
     "get_full_registry",
     "get_tools_by_key",
     "load_agent_registry",
     "record_cost",
     "run_agent",
+    "run_agent_stream",
 ]

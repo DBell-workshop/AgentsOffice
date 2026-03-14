@@ -1,11 +1,13 @@
 """AgentsOffice 容器层 API Router -- 挂载到 /api/v1/office/。"""
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.models import ApiEnvelope, make_id
@@ -242,6 +244,198 @@ async def chat_direct(payload: DirectChatRequest) -> ApiEnvelope:
         )
 
 
+# ================================================================
+# SSE 流式 Chat API — 实时推送调度和 Agent 响应
+# ================================================================
+
+@router.post("/chat/stream")
+async def chat_stream(payload: ChatRequest):
+    """SSE 流式聊天 — 实时推送调度和 Agent 响应事件。"""
+    conversation_id = payload.conversation_id or make_id("conv")
+
+    async def event_generator():
+        try:
+            from app.services.agents import dispatch_stream
+
+            agent_models: Dict[str, Dict[str, str]] = {}
+            try:
+                if office_store is not None:
+                    agent_models = office_store.get_agent_model_configs()
+            except Exception:
+                pass
+
+            if payload.conversation_id is None and office_store is not None:
+                try:
+                    office_store.create_conversation(conversation_id)
+                except Exception:
+                    logger.warning("Failed to create conversation record")
+
+            if office_store is not None:
+                try:
+                    office_store.add_chat_message(
+                        conversation_id=conversation_id,
+                        role="user",
+                        content=payload.message,
+                    )
+                except Exception:
+                    logger.warning("Failed to persist user message")
+
+            dispatcher_cfg = agent_models.get("dispatcher", {})
+            dispatcher_model = dispatcher_cfg.get("model_name") if dispatcher_cfg else None
+
+            # 先推送 conversation_id
+            yield f"event: init\ndata: {json.dumps({'conversation_id': conversation_id})}\n\n"
+
+            async for event in dispatch_stream(
+                user_message=payload.message,
+                conversation_history=payload.history or None,
+                dispatcher_model=dispatcher_model,
+                agent_models=agent_models,
+            ):
+                event_type = event["event"]
+                event_data = event["data"]
+
+                # 持久化每条消息
+                if event_type in ("routing", "process", "message") and office_store is not None:
+                    try:
+                        office_store.add_chat_message(
+                            conversation_id=conversation_id,
+                            role=event_data.get("role", "agent"),
+                            content=event_data.get("content", ""),
+                            agent_slug=event_data.get("agent_slug"),
+                            agent_name=event_data.get("agent_name"),
+                            message_type=event_data.get("message_type"),
+                            metadata={
+                                k: v for k, v in event_data.items()
+                                if k in ("usage", "movement")
+                            },
+                        )
+                    except Exception:
+                        logger.warning("Failed to persist streamed message")
+
+                yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            logger.exception("SSE chat stream failed")
+            error_data = {
+                "role": "system",
+                "agent_slug": "system",
+                "agent_name": "系统",
+                "content": f"调度员暂时无法响应: {str(e)[:200]}",
+            }
+            yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/chat/direct/stream")
+async def chat_direct_stream(payload: DirectChatRequest):
+    """SSE 流式私聊 — 绕过调度员，直接和指定 Agent 流式对话。"""
+    conversation_id = payload.conversation_id or make_id("conv")
+
+    async def event_generator():
+        try:
+            from app.services.agents import run_agent_stream, load_agent_registry
+
+            registry = load_agent_registry()
+            agent_defn = registry.get(payload.agent_slug)
+            if not agent_defn:
+                yield f"event: error\ndata: {json.dumps({'content': f'Agent {payload.agent_slug} not found'}, ensure_ascii=False)}\n\n"
+                return
+
+            agent_api_base = None
+            agent_api_key = None
+            target_model = None
+            if office_store is not None:
+                try:
+                    agent_models = office_store.get_agent_model_configs()
+                    if payload.agent_slug in agent_models:
+                        ac = agent_models[payload.agent_slug]
+                        target_model = ac.get("model_name") or None
+                        agent_api_base = ac.get("api_base") or None
+                        agent_api_key = ac.get("api_key") or None
+                except Exception:
+                    pass
+            target_model = target_model or agent_defn.get("model_name")
+
+            if payload.conversation_id is None and office_store is not None:
+                try:
+                    agent_name = agent_defn.get("display_name", payload.agent_slug)
+                    office_store.create_conversation(conversation_id, title=f"与{agent_name}的私聊")
+                except Exception:
+                    logger.warning("Failed to create direct conversation")
+
+            if office_store is not None:
+                try:
+                    office_store.add_chat_message(
+                        conversation_id=conversation_id,
+                        role="user",
+                        content=payload.message,
+                    )
+                except Exception:
+                    logger.warning("Failed to persist user message")
+
+            yield f"event: init\ndata: {json.dumps({'conversation_id': conversation_id})}\n\n"
+
+            async for event in run_agent_stream(
+                agent_slug=payload.agent_slug,
+                agent_defn=agent_defn,
+                user_message=payload.message,
+                task_summary=payload.message,
+                conversation_history=payload.history or None,
+                model=target_model,
+                api_base=agent_api_base,
+                api_key=agent_api_key,
+            ):
+                event_type = event["event"]
+                event_data = event["data"]
+
+                if event_type in ("process", "message") and office_store is not None:
+                    try:
+                        office_store.add_chat_message(
+                            conversation_id=conversation_id,
+                            role=event_data.get("role", "agent"),
+                            content=event_data.get("content", ""),
+                            agent_slug=event_data.get("agent_slug"),
+                            agent_name=event_data.get("agent_name"),
+                            message_type=event_data.get("message_type"),
+                        )
+                    except Exception:
+                        logger.warning("Failed to persist agent message")
+
+                yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+            yield f"event: done\ndata: {json.dumps({'conversation_id': conversation_id})}\n\n"
+
+        except Exception as e:
+            logger.exception("SSE direct chat stream failed")
+            error_data = {
+                "role": "system",
+                "agent_slug": "system",
+                "agent_name": "系统",
+                "content": f"Agent 暂时无法响应: {str(e)[:200]}",
+            }
+            yield f"event: error\ndata: {json.dumps(error_data, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 def _require_store():
     """确保 office_store 可用，否则抛 503。"""
     if office_store is None:
@@ -384,6 +578,122 @@ def unbind_skill(agent_id: str, skill_id: str) -> ApiEnvelope:
     if not ok:
         raise HTTPException(status_code=404, detail="binding not found")
     return _envelope(trace_id=trace_id, data={"agent_id": agent_id, "skill_id": skill_id, "unbound": True})
+
+
+# ================================================================
+# Skill 执行 API — 多步骤技能的启动、用户交互、会话管理
+# ================================================================
+
+class SkillStartRequest(BaseModel):
+    skill_name: str = Field(..., description="Skill 名称，如 cross_platform_compare")
+    agent_slug: str = Field(default="shopping_guide", description="触发 Skill 的 Agent")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Skill 启动参数")
+
+
+class SkillRespondRequest(BaseModel):
+    user_input: Dict[str, Any] = Field(..., description="用户响应数据，如 {product_ids: [...]}")
+
+
+@router.post("/skills/start")
+async def start_skill_session(payload: SkillStartRequest):
+    """启动一个 Skill 会话，返回 SSE 事件流。
+
+    Skill 是多步骤有状态的 Agent 技能。启动后可能暂停等待用户输入，
+    前端收到 skill_interact (awaiting_user) 事件后，通过 /skills/{session_id}/respond 提交。
+    """
+    from app.services.skills.engine import SkillEngine
+
+    async def event_generator():
+        try:
+            async for event in SkillEngine.start_skill(
+                skill_name=payload.skill_name,
+                agent_slug=payload.agent_slug,
+                params=payload.params,
+            ):
+                event_type = event["event"]
+                event_data = event["data"]
+                yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.exception("Skill start failed")
+            yield f"event: skill_error\ndata: {json.dumps({'error': str(e)[:200]}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/skills/sessions/{session_id}/respond")
+async def respond_skill_session(session_id: str, payload: SkillRespondRequest):
+    """用户响应一个等待中的 Skill 会话，返回 SSE 事件流。"""
+    from app.services.skills.engine import SkillEngine
+
+    async def event_generator():
+        try:
+            async for event in SkillEngine.respond_skill(
+                session_id=session_id,
+                user_input=payload.user_input,
+            ):
+                event_type = event["event"]
+                event_data = event["data"]
+                yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.exception("Skill respond failed")
+            yield f"event: skill_error\ndata: {json.dumps({'error': str(e)[:200]}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/skills/sessions")
+def list_skill_sessions() -> ApiEnvelope:
+    """列出所有活跃的 Skill 会话。"""
+    from app.services.skills.engine import SkillEngine
+
+    trace_id = make_id("trc")
+    sessions = SkillEngine.list_active_sessions()
+    return _envelope(trace_id=trace_id, data={"sessions": sessions, "total": len(sessions)})
+
+
+@router.get("/skills/sessions/{session_id}")
+def get_skill_session(session_id: str) -> ApiEnvelope:
+    """获取指定 Skill 会话的详情。"""
+    from app.services.skills.engine import SkillEngine
+
+    trace_id = make_id("trc")
+    session = SkillEngine.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="skill session not found")
+    return _envelope(trace_id=trace_id, data={
+        "session_id": session.session_id,
+        "skill_name": session.skill_name,
+        "agent_slug": session.agent_slug,
+        "state": session.state,
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+    })
+
+
+@router.get("/skills/registry")
+def get_skill_registry() -> ApiEnvelope:
+    """返回所有已注册的 Skill 及其可用 Agent 信息。"""
+    from app.services.skills.registry import list_skills as list_registered_skills
+
+    trace_id = make_id("trc")
+    skills = list_registered_skills()
+    return _envelope(trace_id=trace_id, data={"skills": skills, "total": len(skills)})
 
 
 # ================================================================
