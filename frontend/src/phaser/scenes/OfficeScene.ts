@@ -222,7 +222,7 @@ export class OfficeScene extends Phaser.Scene {
     // 5. 摄像机 — 自适应缩放 + 拖拽/滚轮平移
     const mapWidth = this.map.widthInPixels;
     const mapHeight = this.map.heightInPixels;
-    const chatBoxWidth = 360; // ChatBox 占据右侧宽度
+    const chatBoxWidth = 520; // ChatBox 占据右侧宽度（含 Agent 列表侧栏）
     const cam = this.cameras.main;
 
     // 将相机视口限定在 ChatBox 左侧区域，地图自然居中
@@ -236,7 +236,7 @@ export class OfficeScene extends Phaser.Scene {
 
     cam.setBounds(-200, -200, mapWidth + 400, mapHeight + 400);
     // 底部 Agent 信息卡遮挡地图，相机中心下移 80px 补偿
-    cam.centerOn(mapWidth / 2, mapHeight / 2 + 80);
+    cam.centerOn(mapWidth / 2 + 20, mapHeight / 2 + 80);
     cam.setZoom(initialZoom);
 
     // 鼠标拖拽平移

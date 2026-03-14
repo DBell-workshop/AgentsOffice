@@ -46,7 +46,7 @@ function formatTime(seconds: number): string {
 
 export const AgentStatusBar: React.FC = () => {
   // ChatBox 宽度同步 — 信息卡不被聊天面板遮挡
-  const [chatBoxWidth, setChatBoxWidth] = useState(360);
+  const [chatBoxWidth, setChatBoxWidth] = useState(520);
 
   useEffect(() => {
     const onResize = (data: { width: number }) => setChatBoxWidth(data.width);
