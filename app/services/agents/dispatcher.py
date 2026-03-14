@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -16,40 +15,6 @@ from app.services.agents.registry import (
 from app.services.agents.runner import record_cost, run_agent, run_agent_stream
 
 log = logging.getLogger(__name__)
-
-
-# ============================================================
-# Skill 触发检测（Phase 1: 关键词匹配）
-# ============================================================
-
-_COMPARE_SKILL_PATTERNS = [
-    r"比价",
-    r"比一下.*价",
-    r"对比.*价格",
-    r"跨平台.*比",
-    r"哪个平台.*便宜",
-    r"哪里.*最便宜",
-    r"多平台.*对比",
-    r"各平台.*价格",
-]
-_COMPARE_RE = re.compile("|".join(_COMPARE_SKILL_PATTERNS))
-
-
-def _detect_skill_trigger(agent_slug: str, user_message: str) -> Optional[Dict[str, Any]]:
-    """检测用户消息是否应触发 Skill 而非普通 Agent 调用。
-
-    返回 None 表示走普通流程，否则返回 {"skill_name": ..., "params": {...}}。
-    """
-    if agent_slug == "shopping_guide" and _COMPARE_RE.search(user_message):
-        # 提取搜索关键词（去掉触发词）
-        query = _COMPARE_RE.sub("", user_message).strip()
-        if not query:
-            query = user_message
-        return {
-            "skill_name": "cross_platform_compare",
-            "params": {"query": query},
-        }
-    return None
 
 
 async def dispatch(
@@ -114,7 +79,52 @@ async def dispatch(
             func = tc.get("function", {})
             func_name = func.get("name", "")
 
-            if func_name == "assign_task":
+            if func_name == "trigger_skill":
+                # LLM 直接判断应触发 Skill
+                from app.services.skills.engine import SkillEngine
+
+                args = json.loads(func.get("arguments", "{}"))
+                skill_name = args.get("skill_name", "")
+                query = args.get("query", user_message)
+
+                log.info("LLM Skill 触发: %s (query=%s)", skill_name, query)
+
+                result_messages.append({
+                    "role": "dispatcher",
+                    "agent_slug": "dispatcher",
+                    "agent_name": "调度员",
+                    "content": f"收到，我来启动{skill_name}技能帮你处理。",
+                    "usage": dispatcher_result["usage"],
+                    "message_type": "routing",
+                    "movement": {"agent_id": "agt_dispatcher", "room_id": "manager"},
+                })
+
+                # 找到 Skill 关联的 Agent slug（用于前端展示）
+                from app.services.skills.registry import get_skill
+                skill_obj = get_skill(skill_name)
+                agent_slug_for_skill = (
+                    skill_obj.agent_slugs[0] if skill_obj and skill_obj.agent_slugs else "shopping_guide"
+                )
+
+                skill_events = []
+                async for event in SkillEngine.start_skill(
+                    skill_name=skill_name,
+                    agent_slug=agent_slug_for_skill,
+                    params={"query": query},
+                ):
+                    skill_events.append(event)
+
+                for evt in skill_events:
+                    result_messages.append({
+                        "role": "skill",
+                        "agent_slug": agent_slug_for_skill,
+                        "agent_name": skill_obj.display_name if skill_obj else skill_name,
+                        "content": evt["data"].get("content", ""),
+                        "message_type": evt["event"],
+                        "skill_data": evt["data"],
+                    })
+
+            elif func_name == "assign_task":
                 args = json.loads(func.get("arguments", "{}"))
                 agent_slug = args.get("agent_slug", "shopping_guide")
                 task_summary = args.get("task_summary", user_message)
@@ -144,45 +154,17 @@ async def dispatch(
                     target_api_key = ac.get("api_key") or None
                 target_model = target_model or agent_defn.get("model_name") or agent_model
 
-                # 检测是否应触发 Skill
-                skill_trigger = _detect_skill_trigger(agent_slug, user_message)
-                if skill_trigger:
-                    from app.services.skills.engine import SkillEngine
-
-                    log.info(
-                        "Skill 触发: %s → %s",
-                        agent_slug,
-                        skill_trigger["skill_name"],
-                    )
-                    skill_events = []
-                    async for event in SkillEngine.start_skill(
-                        skill_name=skill_trigger["skill_name"],
-                        agent_slug=agent_slug,
-                        params=skill_trigger["params"],
-                    ):
-                        skill_events.append(event)
-                    # 将 skill 事件包装为消息格式
-                    for evt in skill_events:
-                        result_messages.append({
-                            "role": "skill",
-                            "agent_slug": agent_slug,
-                            "agent_name": target_name,
-                            "content": evt["data"].get("content", ""),
-                            "message_type": evt["event"],
-                            "skill_data": evt["data"],
-                        })
-                else:
-                    agent_response = await run_agent(
-                        agent_slug=agent_slug,
-                        agent_defn=agent_defn,
-                        user_message=user_message,
-                        task_summary=task_summary,
-                        conversation_history=conversation_history,
-                        model=target_model,
-                        api_base=target_api_base,
-                        api_key=target_api_key,
-                    )
-                    result_messages.extend(agent_response["messages"])
+                agent_response = await run_agent(
+                    agent_slug=agent_slug,
+                    agent_defn=agent_defn,
+                    user_message=user_message,
+                    task_summary=task_summary,
+                    conversation_history=conversation_history,
+                    model=target_model,
+                    api_base=target_api_base,
+                    api_key=target_api_key,
+                )
+                result_messages.extend(agent_response["messages"])
     else:
         result_messages.append({
             "role": "dispatcher",
@@ -260,7 +242,44 @@ async def dispatch_stream(
             func = tc.get("function", {})
             func_name = func.get("name", "")
 
-            if func_name == "assign_task":
+            if func_name == "trigger_skill":
+                # LLM 直接判断应触发 Skill
+                from app.services.skills.engine import SkillEngine
+
+                args = json.loads(func.get("arguments", "{}"))
+                skill_name = args.get("skill_name", "")
+                query = args.get("query", user_message)
+
+                log.info("LLM Skill 触发 (stream): %s (query=%s)", skill_name, query)
+
+                # 找到 Skill 关联的 Agent slug（用于前端展示）
+                from app.services.skills.registry import get_skill
+                skill_obj = get_skill(skill_name)
+                agent_slug_for_skill = (
+                    skill_obj.agent_slugs[0] if skill_obj and skill_obj.agent_slugs else "shopping_guide"
+                )
+
+                yield {
+                    "event": "routing",
+                    "data": {
+                        "role": "dispatcher",
+                        "agent_slug": "dispatcher",
+                        "agent_name": "调度员",
+                        "content": f"收到，我来启动{skill_name}技能帮你处理。",
+                        "usage": dispatcher_result["usage"],
+                        "message_type": "routing",
+                        "movement": {"agent_id": "agt_dispatcher", "room_id": "manager"},
+                    },
+                }
+
+                async for event in SkillEngine.start_skill(
+                    skill_name=skill_name,
+                    agent_slug=agent_slug_for_skill,
+                    params={"query": query},
+                ):
+                    yield event
+
+            elif func_name == "assign_task":
                 args = json.loads(func.get("arguments", "{}"))
                 agent_slug = args.get("agent_slug", "shopping_guide")
                 task_summary = args.get("task_summary", user_message)
@@ -291,34 +310,17 @@ async def dispatch_stream(
                     target_api_key = ac.get("api_key") or None
                 target_model = target_model or agent_defn.get("model_name") or agent_model
 
-                # 检测是否应触发 Skill
-                skill_trigger = _detect_skill_trigger(agent_slug, user_message)
-                if skill_trigger:
-                    from app.services.skills.engine import SkillEngine
-
-                    log.info(
-                        "Skill 触发: %s → %s",
-                        agent_slug,
-                        skill_trigger["skill_name"],
-                    )
-                    async for event in SkillEngine.start_skill(
-                        skill_name=skill_trigger["skill_name"],
-                        agent_slug=agent_slug,
-                        params=skill_trigger["params"],
-                    ):
-                        yield event
-                else:
-                    async for event in run_agent_stream(
-                        agent_slug=agent_slug,
-                        agent_defn=agent_defn,
-                        user_message=user_message,
-                        task_summary=task_summary,
-                        conversation_history=conversation_history,
-                        model=target_model,
-                        api_base=target_api_base,
-                        api_key=target_api_key,
-                    ):
-                        yield event
+                async for event in run_agent_stream(
+                    agent_slug=agent_slug,
+                    agent_defn=agent_defn,
+                    user_message=user_message,
+                    task_summary=task_summary,
+                    conversation_history=conversation_history,
+                    model=target_model,
+                    api_base=target_api_base,
+                    api_key=target_api_key,
+                ):
+                    yield event
     else:
         yield {
             "event": "message",

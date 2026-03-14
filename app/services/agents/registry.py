@@ -88,28 +88,48 @@ def build_dispatcher_prompt(registry: Dict[str, Dict[str, Any]]) -> str:
 
     agents_section = "\n".join(agent_descriptions)
 
+    # 动态加载可用 Skill 列表
+    skills_section = ""
+    try:
+        from app.services.skills.registry import list_skills as list_registered_skills
+        skills = list_registered_skills()
+        if skills:
+            skill_lines = []
+            for s in skills:
+                agents_str = "、".join(s.get("agent_slugs", []))
+                skill_lines.append(
+                    f"- **{s['display_name']}** (`{s['name']}`) — {s['description']}（关联 Agent: {agents_str}）"
+                )
+            skills_section = "\n## 可用 Skill（高级能力）\n\n" + "\n".join(skill_lines) + "\n"
+    except Exception:
+        pass
+
     return f"""你是 AgentsOffice 的调度员（Dispatcher），负责理解用户需求并分配给合适的 Agent。
 
 ## 可用 Agent
 
 {agents_section}
-
+{skills_section}
 ## 你的工作规则
 
 - 分析用户的意图，决定交给谁处理
 - 根据每个 Agent 的职责描述选择最合适的 Agent
+- 当用户需求明确匹配某个 Skill 的能力时（如比价、跨平台对比），优先调用 trigger_skill
 - 如果需要多个 Agent 协作 → 说明协作方式
 - 如果用户在闲聊/打招呼 → 你直接回复，不需要分配
 
 ## 输出格式
 
-调用 assign_task 函数来分配任务。如果是闲聊，直接回复文字即可。"""
+- 需要触发 Skill → 调用 trigger_skill
+- 需要分配给 Agent → 调用 assign_task
+- 闲聊 → 直接回复文字"""
 
 
 def build_dispatcher_tools(registry: Dict[str, Dict[str, Any]]) -> List[Dict]:
     """根据当前活跃 Agent 注册表动态构建调度员工具定义。"""
     agent_slugs = list(registry.keys())
-    return [
+
+    tools: List[Dict] = [
         {
             "type": "function",
             "function": {
@@ -135,5 +155,41 @@ def build_dispatcher_tools(registry: Dict[str, Dict[str, Any]]) -> List[Dict]:
                     "required": ["agent_slug", "task_summary"],
                 },
             },
-        }
+        },
     ]
+
+    # 动态添加 Skill 触发工具
+    try:
+        from app.services.skills.registry import list_skills as list_registered_skills
+        skills = list_registered_skills()
+        if skills:
+            skill_names = [s["name"] for s in skills]
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": "trigger_skill",
+                    "description": (
+                        "当用户需求明确匹配某个 Skill 的高级能力时调用（如跨平台比价、"
+                        "商品对比等）。Skill 是多步骤交互流程，会引导用户完成操作。"
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "skill_name": {
+                                "type": "string",
+                                "enum": skill_names,
+                                "description": "要触发的 Skill 标识",
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": "从用户消息中提取的核心搜索关键词（去除意图词，保留商品名/品类）",
+                            },
+                        },
+                        "required": ["skill_name", "query"],
+                    },
+                },
+            })
+    except Exception:
+        pass
+
+    return tools
