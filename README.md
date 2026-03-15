@@ -5,10 +5,18 @@
   <a href="README_ja.md">日本語</a>
 </p>
 
+<p align="center">
+  <img src="docs/screenshot.png" width="800" alt="AgentsOffice - 繁體中文" />
+</p>
+
 <h1 align="center">AgentsOffice</h1>
 
 <p align="center">
   <strong>给你的 AI 团队一间看得见的办公室</strong>
+</p>
+
+<p align="center">
+  <img src="docs/screenshot-en.png" width="400" alt="English UI" />
 </p>
 
 <p align="center">
