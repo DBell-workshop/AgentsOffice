@@ -23,7 +23,7 @@
   <a href="#features">機能</a> ·
   <a href="#quick-start">クイックスタート</a> ·
   <a href="#architecture">アーキテクチャ</a> ·
-  <a href="#pricing">料金プラン</a> ·
+  <a href="#support">サポート</a> ·
   <a href="LICENSE">License</a>
 </p>
 
@@ -222,22 +222,24 @@ npm run dev
 
 ---
 
-<a id="pricing"></a>
-## Pricing
+<a id="support"></a>
+## このプロジェクトを支援する
 
-AgentsOffice は**オープンコア (Open Core)** モデルを採用しています。
+AgentsOffice はコミュニティ主導のオープンソースプロジェクトです。お役に立てたなら、ぜひご支援ください：
 
-| | 無料版 | プロ版 | チーム版 |
-|--|--------|--------|--------|
-| **Agent 数** | カスタム 2 体 + ディスパッチャー | 無制限 | 無制限 + カスタム Skill |
-| **RPG オフィス** | ✅ | ✅ | ✅ |
-| **LLM モデル** | 自前の Key を使用 | 自前の Key を使用 | 自前の Key を使用 |
-| **データ管理** | ✅ | ✅ | ✅ |
-| **コストトラッキング** | ✅ | ✅ | ✅ |
-| **カスタム Skill** | - | ✅ | ✅ |
-| **データエクスポート** | - | ✅ | ✅ |
-| **マルチユーザー連携** | - | - | ✅ |
-| **価格** | **無料** | **¥99/月** | **¥299/月** |
+<p align="center">
+
+**⭐ [Star をつける](https://github.com/DBell-workshop/agents-office)** — 最もシンプルな応援方法
+
+**☕ [Buy Me a Coffee](https://buymeacoffee.com/)** — コーヒーをおごる
+
+**💖 [GitHub Sponsors](https://github.com/sponsors/DBell-workshop)** — 長期スポンサーになる
+
+**🎁 [Ko-fi](https://ko-fi.com/)** — ワンタイム寄付
+
+</p>
+
+> すべての Star とスポンサーシップが開発の原動力です！
 
 ---
 

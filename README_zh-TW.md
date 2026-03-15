@@ -23,7 +23,7 @@
   <a href="#features">功能</a> ·
   <a href="#quick-start">快速開始</a> ·
   <a href="#architecture">架構</a> ·
-  <a href="#pricing">定價</a> ·
+  <a href="#support">支持我們</a> ·
   <a href="LICENSE">License</a>
 </p>
 
@@ -222,22 +222,24 @@ npm run dev
 
 ---
 
-<a id="pricing"></a>
-## Pricing
+<a id="support"></a>
+## 支持這個專案
 
-AgentsOffice 採用**開放核心 (Open Core)** 模式：
+AgentsOffice 是一個由社群驅動的開源專案。如果覺得有幫助，請考慮支持我們：
 
-| | 免費版 | 專業版 | 團隊版 |
-|--|--------|--------|--------|
-| **Agent 數量** | 2 個自訂 + 調度員 | 無限 | 無限 + 自訂 Skill |
-| **RPG 辦公室** | ✅ | ✅ | ✅ |
-| **LLM 模型** | 自帶 Key | 自帶 Key | 自帶 Key |
-| **資料管理** | ✅ | ✅ | ✅ |
-| **成本追蹤** | ✅ | ✅ | ✅ |
-| **自訂 Skill** | - | ✅ | ✅ |
-| **資料匯出** | - | ✅ | ✅ |
-| **多使用者協作** | - | - | ✅ |
-| **價格** | **免費** | **¥99/月** | **¥299/月** |
+<p align="center">
+
+**⭐ [Star 這個 Repo](https://github.com/DBell-workshop/agents-office)** — 最簡單的支持方式
+
+**☕ [Buy Me a Coffee](https://buymeacoffee.com/)** — 請我們喝杯咖啡
+
+**💖 [GitHub Sponsors](https://github.com/sponsors/DBell-workshop)** — 成為長期贊助者
+
+**🎁 [Ko-fi](https://ko-fi.com/)** — 一次性打賞
+
+</p>
+
+> 你的每一個 Star 和贊助都是我們持續開發的動力！
 
 ---
 

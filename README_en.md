@@ -23,7 +23,7 @@
   <a href="#features">Features</a> ·
   <a href="#quick-start">Quick Start</a> ·
   <a href="#architecture">Architecture</a> ·
-  <a href="#pricing">Pricing</a> ·
+  <a href="#support">Support Us</a> ·
   <a href="LICENSE">License</a>
 </p>
 
@@ -223,22 +223,24 @@ You'll see the pixel-art office. Click the agent status bar at the bottom to get
 
 ---
 
-<a id="pricing"></a>
-## Pricing
+<a id="support"></a>
+## Support This Project
 
-AgentsOffice follows an **Open Core** model:
+AgentsOffice is a community-driven open source project. If you find it useful, please consider supporting us:
 
-| | Free | Pro | Team |
-|--|--------|--------|--------|
-| **Agents** | 2 custom + dispatcher | Unlimited | Unlimited + custom skills |
-| **RPG Office** | ✅ | ✅ | ✅ |
-| **LLM Models** | BYO Key | BYO Key | BYO Key |
-| **Data Management** | ✅ | ✅ | ✅ |
-| **Cost Tracking** | ✅ | ✅ | ✅ |
-| **Custom Skills** | - | ✅ | ✅ |
-| **Data Export** | - | ✅ | ✅ |
-| **Multi-User Collaboration** | - | - | ✅ |
-| **Price** | **Free** | **$14/mo** | **$42/mo** |
+<p align="center">
+
+**⭐ [Star this repo](https://github.com/DBell-workshop/agents-office)** — The simplest way to support us
+
+**☕ [Buy Me a Coffee](https://buymeacoffee.com/)** — Buy us a coffee
+
+**💖 [GitHub Sponsors](https://github.com/sponsors/DBell-workshop)** — Become a long-term sponsor
+
+**🎁 [Ko-fi](https://ko-fi.com/)** — One-time donation
+
+</p>
+
+> Every Star and sponsorship keeps us going!
 
 ---
 
