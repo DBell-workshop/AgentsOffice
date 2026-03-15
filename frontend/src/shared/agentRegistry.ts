@@ -40,12 +40,16 @@ export function getSpriteKey(slug: string): string {
 let cachedAgents: AgentRegistryEntry[] | null = null;
 let loadPromise: Promise<AgentRegistryEntry[]> | null = null;
 
-/** 硬编码 fallback — 通用版默认 Agent */
-const FALLBACK_AGENTS: AgentRegistryEntry[] = [
-  { slug: 'dispatcher', displayName: '调度员', role: '任务分配与调度', color: '#ff6b6b', roomId: 'manager', phaserAgentId: 'agt_dispatcher', isDispatcher: true },
-  { slug: 'assistant', displayName: '助理', role: '通用工作助理', color: '#4ade80', roomId: 'workspace', phaserAgentId: 'agt_assistant', isDispatcher: false },
-  { slug: 'data_engineer', displayName: '数据工程师', role: '数据管理与上传', color: '#a78bfa', roomId: 'datacenter', phaserAgentId: 'agt_data_eng', isDispatcher: false },
-];
+/** 硬编码 fallback — 通用版默认 Agent（使用 i18n） */
+import { t } from './i18n';
+
+function getFallbackAgents(): AgentRegistryEntry[] {
+  return [
+    { slug: 'dispatcher', displayName: t('builtin.dispatcher'), role: t('builtin.dispatcher.role'), color: '#ff6b6b', roomId: 'manager', phaserAgentId: 'agt_dispatcher', isDispatcher: true },
+    { slug: 'assistant', displayName: t('builtin.assistant'), role: t('builtin.assistant.role'), color: '#4ade80', roomId: 'workspace', phaserAgentId: 'agt_assistant', isDispatcher: false },
+    { slug: 'data_engineer', displayName: t('builtin.data_engineer'), role: t('builtin.data_engineer.role'), color: '#a78bfa', roomId: 'datacenter', phaserAgentId: 'agt_data_eng', isDispatcher: false },
+  ];
+}
 
 /**
  * 加载 Agent 注册表。首次调用会发请求，后续返回缓存。
@@ -72,7 +76,7 @@ export function loadAgentRegistry(): Promise<AgentRegistryEntry[]> {
       return cachedAgents;
     })
     .catch(() => {
-      cachedAgents = FALLBACK_AGENTS;
+      cachedAgents = getFallbackAgents();
       return cachedAgents;
     });
 
@@ -81,7 +85,7 @@ export function loadAgentRegistry(): Promise<AgentRegistryEntry[]> {
 
 /** 同步获取已缓存的 agents（未加载时返回 fallback） */
 export function getAgentsCached(): AgentRegistryEntry[] {
-  return cachedAgents || FALLBACK_AGENTS;
+  return cachedAgents || getFallbackAgents();
 }
 
 /** 清除缓存，下次调用 loadAgentRegistry 时重新加载 */

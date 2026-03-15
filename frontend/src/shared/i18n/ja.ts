@@ -78,6 +78,21 @@ export const ja: Record<string, string> = {
   'db.noResult': '結果なし',
   'db.error': 'クエリエラー',
 
+  // ========== ルーム名 ==========
+  'room.showroom': 'ショールーム',
+  'room.manager': '司令室',
+  'room.meeting': 'コラボルーム',
+  'room.workspace': 'ワークスペース',
+  'room.datacenter': 'データセンター',
+
+  // ========== 組み込みエージェント ==========
+  'builtin.dispatcher': 'ディスパッチャー',
+  'builtin.dispatcher.role': 'タスク振分・調整',
+  'builtin.assistant': 'アシスタント',
+  'builtin.assistant.role': '汎用ワークアシスタント',
+  'builtin.data_engineer': 'データエンジニア',
+  'builtin.data_engineer.role': 'データ管理・アップロード',
+
   // ========== 共通 ==========
   'common.close': '閉じる',
   'common.cancel': 'キャンセル',

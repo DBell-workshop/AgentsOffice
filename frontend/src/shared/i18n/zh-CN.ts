@@ -78,6 +78,21 @@ export const zhCN: Record<string, string> = {
   'db.noResult': '无结果',
   'db.error': '查询错误',
 
+  // ========== 房间名称 ==========
+  'room.showroom': '展示厅',
+  'room.manager': '调度中心',
+  'room.meeting': '协作室',
+  'room.workspace': '待命区',
+  'room.datacenter': '数据中心',
+
+  // ========== 内置 Agent ==========
+  'builtin.dispatcher': '调度员',
+  'builtin.dispatcher.role': '任务分配与调度',
+  'builtin.assistant': '助理',
+  'builtin.assistant.role': '通用工作助理',
+  'builtin.data_engineer': '数据工程师',
+  'builtin.data_engineer.role': '数据管理与上传',
+
   // ========== 通用 ==========
   'common.close': '关闭',
   'common.cancel': '取消',

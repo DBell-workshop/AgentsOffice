@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { EventBus } from '../../shared/events/EventBus';
 import { getAgentsCached, getSpriteKey } from '../../shared/agentRegistry';
+import { t } from '../../shared/i18n';
 
 // LimeZu 32x64 frames: 56 cols x 20 rows
 // Row 1: idle loop (24 frames: down 0-5, right 6-11, up 12-17, left 18-23)
@@ -28,7 +29,7 @@ const ROOMS: Record<
 > = {
   // 商品展厅（左上）— 导购员常驻，向客户推荐商品
   showroom: {
-    label: '商品展厅',
+    label: '__room.showroom__',
     labelPos: { x: 330, y: 120 },
     entry: { x: 400, y: 365 },
     spots: [
@@ -42,7 +43,7 @@ const ROOMS: Record<
   },
   // 调度中心（右上）— 调度员常驻，分配任务
   manager: {
-    label: '调度中心',
+    label: '__room.manager__',
     labelPos: { x: 840, y: 100 },
     entry: { x: 688, y: 270 },
     spots: [
@@ -56,7 +57,7 @@ const ROOMS: Record<
   },
   // 协作室（左下）— 多 Agent 协同讨论
   meeting: {
-    label: '协作室',
+    label: '__room.meeting__',
     labelPos: { x: 330, y: 540 },
     entry: { x: 400, y: 525 },
     spots: [
@@ -70,7 +71,7 @@ const ROOMS: Record<
   },
   // 待命区（右侧中部）— 待命 Agent 就绪等待
   workspace: {
-    label: '待命区',
+    label: '__room.workspace__',
     labelPos: { x: 840, y: 340 },
     entry: { x: 850, y: 430 },
     spots: [
@@ -84,7 +85,7 @@ const ROOMS: Record<
   },
   // 数据仓库（右侧下部）— 理货员常驻，管理商品数据
   datacenter: {
-    label: '数据仓库',
+    label: '__room.datacenter__',
     labelPos: { x: 840, y: 650 },
     entry: { x: 848, y: 660 },
     spots: [
@@ -289,7 +290,11 @@ export class OfficeScene extends Phaser.Scene {
   // ============================================================
   private createRoomLabels() {
     for (const [_key, room] of Object.entries(ROOMS)) {
-      const label = this.add.text(room.labelPos.x, room.labelPos.y, room.label, {
+      // 解析 i18n key: "__room.xxx__" → t('room.xxx')
+      const labelText = room.label.startsWith('__') && room.label.endsWith('__')
+        ? t(room.label.slice(2, -2))
+        : room.label;
+      const label = this.add.text(room.labelPos.x, room.labelPos.y, labelText, {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#ffd700',

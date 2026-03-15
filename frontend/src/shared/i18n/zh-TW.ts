@@ -78,6 +78,21 @@ export const zhTW: Record<string, string> = {
   'db.noResult': '無結果',
   'db.error': '查詢錯誤',
 
+  // ========== 房間名稱 ==========
+  'room.showroom': '展示廳',
+  'room.manager': '調度中心',
+  'room.meeting': '協作室',
+  'room.workspace': '待命區',
+  'room.datacenter': '資料中心',
+
+  // ========== 內建 Agent ==========
+  'builtin.dispatcher': '調度員',
+  'builtin.dispatcher.role': '任務分配與調度',
+  'builtin.assistant': '助理',
+  'builtin.assistant.role': '通用工作助理',
+  'builtin.data_engineer': '資料工程師',
+  'builtin.data_engineer.role': '資料管理與上傳',
+
   // ========== 通用 ==========
   'common.close': '關閉',
   'common.cancel': '取消',

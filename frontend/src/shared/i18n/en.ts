@@ -78,6 +78,21 @@ export const en: Record<string, string> = {
   'db.noResult': 'No results',
   'db.error': 'Query error',
 
+  // ========== Room Names ==========
+  'room.showroom': 'Showroom',
+  'room.manager': 'Command Center',
+  'room.meeting': 'Meeting Room',
+  'room.workspace': 'Workspace',
+  'room.datacenter': 'Data Center',
+
+  // ========== Built-in Agents ==========
+  'builtin.dispatcher': 'Dispatcher',
+  'builtin.dispatcher.role': 'Task routing & dispatch',
+  'builtin.assistant': 'Assistant',
+  'builtin.assistant.role': 'General-purpose helper',
+  'builtin.data_engineer': 'Data Engineer',
+  'builtin.data_engineer.role': 'Data management & upload',
+
   // ========== Common ==========
   'common.close': 'Close',
   'common.cancel': 'Cancel',
