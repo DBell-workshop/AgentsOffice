@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/rpg-office-overview.png" width="800" alt="AgentsOffice RPG Interface" />
+  <img src="docs/images/demo.gif" width="800" alt="AgentsOffice Demo" />
 </p>
 
 <h1 align="center">AgentsOffice - AI Digital Workforce Lab</h1>

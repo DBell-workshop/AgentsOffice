@@ -68,8 +68,35 @@ def load_agent_registry() -> Dict[str, Dict[str, Any]]:
 
 
 def get_full_registry() -> Dict[str, Dict[str, Any]]:
-    """返回完整注册表（含 dispatcher），供前端 API 使用。"""
+    """返回完整注册表（含 dispatcher + 所有活跃自定义 Agent），供前端 API 使用。
+
+    与 load_agent_registry() 不同，此函数包含所有活跃 Agent（即使没有 system_prompt），
+    因为前端需要在状态栏和地图上显示它们。
+    """
     registry = load_agent_registry()
+
+    # 补充：加载所有活跃的自定义 Agent（包括尚未设置 system_prompt 的）
+    try:
+        from app.office.store import office_store
+        if office_store is not None:
+            db_agents = office_store.get_active_agent_definitions()
+            for agent in db_agents:
+                slug = agent["slug"]
+                if slug == "dispatcher" or slug in registry:
+                    continue
+                registry[slug] = {
+                    "slug": slug,
+                    "display_name": agent.get("display_name", slug),
+                    "role": agent.get("role", ""),
+                    "system_prompt": agent.get("system_prompt", ""),
+                    "color": agent.get("color", "#cccccc"),
+                    "room_id": agent.get("room_id", "workspace"),
+                    "phaser_agent_id": agent.get("phaser_agent_id", ""),
+                    "model_name": agent.get("model_name", ""),
+                }
+    except Exception:
+        pass
+
     # 加入调度员
     full = {"dispatcher": {**DISPATCHER_DEFINITION, "slug": "dispatcher"}}
     full.update(registry)
