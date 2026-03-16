@@ -283,19 +283,19 @@ export class OfficeScene extends Phaser.Scene {
     this.map = this.make.tilemap({ key: 'office-map' });
     const floorTS = this.map.addTilesetImage('FloorAndGround', 'tiles_wall')!;
     const groundLayer = this.map.createLayer('Ground', floorTS);
-    if (groundLayer) groundLayer.setDepth(0);
+    if (groundLayer) groundLayer.setDepth(-1000);
 
-    // 2. Object layers
-    this.addGroupFromTiled('Wall', 'tiles_wall', 'FloorAndGround');
-    this.addGroupFromTiled('Objects', 'office', 'Modern_Office_Black_Shadow');
-    this.addGroupFromTiled('ObjectsOnCollide', 'office', 'Modern_Office_Black_Shadow');
-    this.addGroupFromTiled('GenericObjects', 'generic', 'Generic');
-    this.addGroupFromTiled('GenericObjectsOnCollide', 'generic', 'Generic');
-    this.addGroupFromTiled('Basement', 'basement', 'Basement');
-    this.addGroupFromTiled('Chair', 'chairs', 'chair');
-    this.addGroupFromTiled('Computer', 'computers', 'computer');
-    this.addGroupFromTiled('Whiteboard', 'whiteboards', 'whiteboard');
-    this.addGroupFromTiled('VendingMachine', 'vendingmachines', 'vendingmachine');
+    // 2. Object layers — 全部使用固定低 depth，确保 Agent 永远在最上层
+    this.addGroupFromTiled('Wall', 'tiles_wall', 'FloorAndGround', -500);
+    this.addGroupFromTiled('Objects', 'office', 'Modern_Office_Black_Shadow', 1);
+    this.addGroupFromTiled('ObjectsOnCollide', 'office', 'Modern_Office_Black_Shadow', 1);
+    this.addGroupFromTiled('GenericObjects', 'generic', 'Generic', 1);
+    this.addGroupFromTiled('GenericObjectsOnCollide', 'generic', 'Generic', 1);
+    this.addGroupFromTiled('Basement', 'basement', 'Basement', -800);
+    this.addGroupFromTiled('Chair', 'chairs', 'chair', 2);
+    this.addGroupFromTiled('Computer', 'computers', 'computer', 2);
+    this.addGroupFromTiled('Whiteboard', 'whiteboards', 'whiteboard', 2);
+    this.addGroupFromTiled('VendingMachine', 'vendingmachines', 'vendingmachine', 2);
 
     // 3. 房间名称标签
     this.createRoomLabels();
@@ -544,7 +544,7 @@ export class OfficeScene extends Phaser.Scene {
   // ============================================================
   // 渲染
   // ============================================================
-  private addGroupFromTiled(objectLayerName: string, key: string, tilesetName: string) {
+  private addGroupFromTiled(objectLayerName: string, key: string, tilesetName: string, fixedDepth?: number) {
     const objectLayer = this.map.getObjectLayer(objectLayerName);
     if (!objectLayer) return;
 
@@ -565,7 +565,7 @@ export class OfficeScene extends Phaser.Scene {
       const actualY = (object.y || 0) - (object.height || 0) * 0.5;
 
       const sprite = this.add.sprite(actualX, actualY, key, frameIndex);
-      sprite.setDepth(Math.min(actualY, 5000));
+      sprite.setDepth(fixedDepth ?? 1);
       if (flipH) sprite.setFlipX(true);
     });
   }
