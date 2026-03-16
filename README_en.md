@@ -220,11 +220,8 @@ AgentsOffice is a community-driven open source project. If you find it useful, p
 
 **⭐ [Star this repo](https://github.com/DBell-workshop/agents-office)** — The simplest way to support us
 
-**☕ [Buy Me a Coffee](https://buymeacoffee.com/)** — Buy us a coffee
-
-**💖 [GitHub Sponsors](https://github.com/sponsors/DBell-workshop)** — Become a long-term sponsor
-
-**🎁 [Ko-fi](https://ko-fi.com/)** — One-time donation
+**💳 PayPal** — Scan to support us<br/>
+<img src="docs/paypal-qr.png" width="180" alt="PayPal QR" />
 
 </p>
 
