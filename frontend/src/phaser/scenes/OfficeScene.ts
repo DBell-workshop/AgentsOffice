@@ -506,7 +506,7 @@ export class OfficeScene extends Phaser.Scene {
       duration,
       ease: 'Linear',
       onUpdate: () => {
-        agent.container.setDepth(agent.container.y);
+        agent.container.setDepth(agent.container.y + 10000);
       },
       onComplete: () => {
         this.moveAlongPath(agent, path, index + 1);
@@ -600,7 +600,7 @@ export class OfficeScene extends Phaser.Scene {
       nameTag.setOrigin(0.5);
 
       const container = this.add.container(pos.x, pos.y, [sprite, nameTag]);
-      container.setDepth(pos.y);
+      container.setDepth(pos.y + 10000);
       container.setSize(32, 64);
       container.setInteractive({ useHandCursor: true });
 
@@ -894,7 +894,7 @@ export class OfficeScene extends Phaser.Scene {
         agent.container.y - 50,
         4, 4, color, 0.9,
       );
-      dot.setDepth(agent.container.y + 1000);
+      dot.setDepth(agent.container.y + 20000);
 
       this.tweens.add({
         targets: dot,
@@ -989,7 +989,7 @@ export class OfficeScene extends Phaser.Scene {
       y: randomSpot.y,
       duration: (distance / 60) * 1000,
       ease: 'Linear',
-      onUpdate: () => { agent.container.setDepth(agent.container.y); },
+      onUpdate: () => { agent.container.setDepth(agent.container.y + 10000); },
       onComplete: () => {
         agent.isMoving = false;
         agent.sprite.play(`${agent.spriteKey}-idle-down`);
@@ -1073,7 +1073,7 @@ export class OfficeScene extends Phaser.Scene {
       y: target.y,
       duration: (distance / 70) * 1000, // 70px/s 闲逛速度
       ease: 'Linear',
-      onUpdate: () => { agent.container.setDepth(agent.container.y); },
+      onUpdate: () => { agent.container.setDepth(agent.container.y + 10000); },
       onComplete: () => {
         this.moveAlongPathWithCallback(agent, path, index + 1, onDone);
       },
