@@ -209,13 +209,16 @@ function cssColorToHex(css: string): number {
   return parseInt(css.replace('#', ''), 16);
 }
 
+// 将 Agent 均匀分配到不同房间，避免全挤在一个房间
+const ROOM_KEYS = Object.keys(ROOMS);
+
 function buildAgentSpawns() {
-  return getAgentsCached().map((a) => ({
+  return getAgentsCached().map((a, idx) => ({
     agentId: a.phaserAgentId || `agt_${a.slug}`,
     name: a.displayName,
     slug: a.slug,
     spriteKey: getSpriteKey(a.slug),
-    homeRoom: a.roomId || 'workspace',
+    homeRoom: a.roomId || ROOM_KEYS[idx % ROOM_KEYS.length],
     color: cssColorToHex(a.color),
   }));
 }
@@ -1077,6 +1080,26 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
+  /** 从 spots 中选择一个没有其他 Agent 占用的位置 */
+  private pickUnoccupiedSpot(
+    spots: { x: number; y: number }[],
+    excludeAgent: AgentCharacter,
+  ): { x: number; y: number } {
+    const occupied = new Set<number>();
+    for (const other of this.agents) {
+      if (other === excludeAgent || other.isMoving) continue;
+      for (let i = 0; i < spots.length; i++) {
+        const dist = Math.abs(other.container.x - spots[i].x) + Math.abs(other.container.y - spots[i].y);
+        if (dist < 30) occupied.add(i);
+      }
+    }
+    const free = spots.map((s, i) => i).filter(i => !occupied.has(i));
+    const idx = free.length > 0
+      ? free[Math.floor(Math.random() * free.length)]
+      : Math.floor(Math.random() * spots.length);
+    return spots[idx];
+  }
+
   /** Agent 回到自己的房间 */
   private returnAgentHome(agent: AgentCharacter) {
     const homeRoom = ROOMS[agent.homeRoom];
@@ -1087,7 +1110,7 @@ export class OfficeScene extends Phaser.Scene {
     const homeExit = ROOM_CORRIDOR[agent.homeRoom];
     const corridorPath = this.findCorridorPath(currentNearestCorridor, homeExit);
 
-    const homeSpot = homeRoom.spots[Math.floor(Math.random() * homeRoom.spots.length)];
+    const homeSpot = this.pickUnoccupiedSpot(homeRoom.spots, agent);
     const returnPath = [
       ...(corridorPath || []).map(id => {
         const node = CORRIDOR_NODES.find(n => n.id === id);

@@ -350,8 +350,8 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 4,
   },
   card: {
-    flex: 1,
-    minWidth: 0,
+    flex: '0 0 auto',
+    width: 160,
     display: 'flex',
     flexDirection: 'column' as const,
     background: 'rgba(20, 15, 8, 0.93)',
