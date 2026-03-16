@@ -209,18 +209,45 @@ function cssColorToHex(css: string): number {
   return parseInt(css.replace('#', ''), 16);
 }
 
-// 将 Agent 均匀分配到不同房间，避免全挤在一个房间
+// 预定义的不重叠初始站位 — 全部在走廊正中央和房间中心开阔地带
+const FIXED_SPAWN_POINTS: { x: number; y: number; room: string }[] = [
+  { x: 720, y: 190, room: 'manager' },      // 1. 调度中心正中央
+  { x: 350, y: 250, room: 'showroom' },      // 2. 展示厅正中央
+  { x: 620, y: 370, room: 'workspace' },     // 3. 主走廊中段
+  { x: 830, y: 400, room: 'workspace' },     // 4. 待命区中央
+  { x: 810, y: 680, room: 'datacenter' },    // 5. 数据中心正中央
+  { x: 620, y: 300, room: 'workspace' },     // 6. 主走廊上段
+  { x: 620, y: 460, room: 'workspace' },     // 7. 主走廊下段
+  { x: 350, y: 660, room: 'meeting' },       // 8. 协作室正中央
+  { x: 920, y: 400, room: 'workspace' },     // 9. 待命区右侧开阔
+  { x: 800, y: 190, room: 'manager' },       // 10. 调度中心右侧
+  { x: 250, y: 250, room: 'showroom' },      // 11. 展示厅左侧
+  { x: 720, y: 400, room: 'workspace' },     // 12. 走廊中间
+  { x: 900, y: 680, room: 'datacenter' },    // 13. 数据中心右侧
+  { x: 450, y: 660, room: 'meeting' },       // 14. 协作室右侧
+  { x: 620, y: 250, room: 'workspace' },     // 15. 走廊最上段
+  { x: 520, y: 370, room: 'workspace' },     // 16. 走廊左侧
+  { x: 450, y: 250, room: 'showroom' },      // 17. 展示厅右侧
+  { x: 720, y: 680, room: 'datacenter' },    // 18. 数据中心左侧
+  { x: 520, y: 460, room: 'workspace' },     // 19. 走廊左下
+  { x: 250, y: 660, room: 'meeting' },       // 20. 协作室左侧
+];
+
 const ROOM_KEYS = Object.keys(ROOMS);
 
 function buildAgentSpawns() {
-  return getAgentsCached().map((a, idx) => ({
-    agentId: a.phaserAgentId || `agt_${a.slug}`,
-    name: a.displayName,
-    slug: a.slug,
-    spriteKey: getSpriteKey(a.slug),
-    homeRoom: a.roomId || ROOM_KEYS[idx % ROOM_KEYS.length],
-    color: cssColorToHex(a.color),
-  }));
+  return getAgentsCached().map((a, idx) => {
+    const spawn = FIXED_SPAWN_POINTS[idx % FIXED_SPAWN_POINTS.length];
+    return {
+      agentId: a.phaserAgentId || `agt_${a.slug}`,
+      name: a.displayName,
+      slug: a.slug,
+      spriteKey: getSpriteKey(a.slug),
+      homeRoom: a.roomId || spawn.room,
+      color: cssColorToHex(a.color),
+      fixedSpawn: { x: spawn.x, y: spawn.y },
+    };
+  });
 }
 
 interface AgentCharacter {
@@ -538,7 +565,7 @@ export class OfficeScene extends Phaser.Scene {
       const actualY = (object.y || 0) - (object.height || 0) * 0.5;
 
       const sprite = this.add.sprite(actualX, actualY, key, frameIndex);
-      sprite.setDepth(actualY);
+      sprite.setDepth(Math.min(actualY, 5000));
       if (flipH) sprite.setFlipX(true);
     });
   }
@@ -576,15 +603,9 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private createAgents() {
-    // 按房间追踪已分配的站位数量
-    const roomSpotCounter: Record<string, number> = {};
-
     this.agentSpawns.forEach((spawn) => {
-      const room = ROOMS[spawn.homeRoom];
-      const usedCount = roomSpotCounter[spawn.homeRoom] || 0;
-      const spotIndex = usedCount % room.spots.length;
-      roomSpotCounter[spawn.homeRoom] = usedCount + 1;
-      const pos = room.spots[spotIndex];
+      // 使用预定义的固定站位，不再从房间 spots 取
+      const pos = (spawn as any).fixedSpawn || ROOMS[spawn.homeRoom]?.spots?.[0] || { x: 600, y: 400 };
 
       const sprite = this.add.sprite(0, 0, spawn.spriteKey);
       sprite.play(`${spawn.spriteKey}-idle-down`);
