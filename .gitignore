@@ -18,6 +18,10 @@ frontend/dist/
 .idea/
 .vscode/
 
+# Claude Code 开发工具（不随项目开源）
+.claude/
+.mcp.json
+
 # Playwright MCP
 .playwright-mcp/
 
