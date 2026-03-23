@@ -22,8 +22,19 @@ frontend/dist/
 .claude/
 .mcp.json
 
-# Pro 版文档（闭源，不随开源版发布）
+# Pro 版内容（闭源，不随开源版发布）
 docs/pro/
+app/services/dashboard.py
+frontend/src/react/DashboardView.tsx
+frontend/src/react/ScenarioTemplatePanel.tsx
+frontend/src/dashboard-entry.tsx
+frontend/dashboard.html
+app/static/office/dashboard.html
+app/static/office/assets/DashboardView-*.js
+app/static/office/assets/dashboard-*.js
+scripts/seed_mock_data.py
+scripts/training_data_sample.jsonl
+scripts/local_model_setup.py
 
 # Playwright MCP
 .playwright-mcp/
