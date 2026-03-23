@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="800" alt="AgentsOffice Demo" />
+  <img src="docs/images/demo.gif" width="800" alt="AgentsOffice Demo" />
 </p>
 
 <h1 align="center">AgentsOffice</h1>

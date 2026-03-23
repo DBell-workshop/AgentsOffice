@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="800" alt="AgentsOffice Demo" />
+  <img src="docs/images/demo.gif" width="800" alt="AgentsOffice Demo" />
 </p>
 
 <h1 align="center">AgentsOffice</h1>
@@ -210,20 +210,16 @@ cd frontend && npm install && npm run dev
 
 ---
 
-<a id="support"></a>
 ## 支持這個專案
 
 AgentsOffice 是一個由社群驅動的開源專案。如果覺得有幫助，請考慮支持我們：
 
 <p align="center">
 
-**⭐ [Star 這個 Repo](https://github.com/DBell-workshop/agents-office)** — 最簡單的支持方式
+<strong>⭐ <a href="https://github.com/DBell-workshop/agents-office">Star 這個 Repo</a></strong> — 最簡單的支持方式
 
-**☕ [Buy Me a Coffee](https://buymeacoffee.com/)** — 請我們喝杯咖啡
-
-**💖 [GitHub Sponsors](https://github.com/sponsors/DBell-workshop)** — 成為長期贊助者
-
-**🎁 [Ko-fi](https://ko-fi.com/)** — 一次性打賞
+<strong>💳 PayPal 打賞</strong> — 掃碼支持我們<br/>
+<img src="docs/paypal-qr.png" width="180" alt="PayPal QR" />
 
 </p>
 

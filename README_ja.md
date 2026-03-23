@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="800" alt="AgentsOffice Demo" />
+  <img src="docs/images/demo.gif" width="800" alt="AgentsOffice Demo" />
 </p>
 
 <h1 align="center">AgentsOffice</h1>
@@ -210,20 +210,16 @@ cd frontend && npm install && npm run dev
 
 ---
 
-<a id="support"></a>
 ## このプロジェクトを支援する
 
 AgentsOffice はコミュニティ主導のオープンソースプロジェクトです。お役に立てたなら、ぜひご支援ください：
 
 <p align="center">
 
-**⭐ [Star をつける](https://github.com/DBell-workshop/agents-office)** — 最もシンプルな応援方法
+<strong>⭐ <a href="https://github.com/DBell-workshop/agents-office">Star をつける</a></strong> — 最もシンプルな応援方法
 
-**☕ [Buy Me a Coffee](https://buymeacoffee.com/)** — コーヒーをおごる
-
-**💖 [GitHub Sponsors](https://github.com/sponsors/DBell-workshop)** — 長期スポンサーになる
-
-**🎁 [Ko-fi](https://ko-fi.com/)** — ワンタイム寄付
+<strong>💳 PayPal</strong> — スキャンして支援<br/>
+<img src="docs/paypal-qr.png" width="180" alt="PayPal QR" />
 
 </p>
 
