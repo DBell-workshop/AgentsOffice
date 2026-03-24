@@ -74,6 +74,7 @@ export const ReactOverlay: React.FC = () => {
   const [sceneReady, setSceneReady] = useState(false);
   const [configAgent, setConfigAgent] = useState<AgentClickData | null>(null);
   const [showDatabase, setShowDatabase] = useState(false);
+  const [isBackendHealthy, setIsBackendHealthy] = useState(false);
 
   const [_showCollector, setShowCollector] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -160,6 +161,34 @@ export const ReactOverlay: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // 轮询后端健康状态
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkBackendHealth = async () => {
+      try {
+        const response = await fetch('/api/v1/health', { method: 'GET' });
+        if (isMounted) {
+          setIsBackendHealthy(response.status === 200);
+        }
+      } catch {
+        if (isMounted) {
+          setIsBackendHealthy(false);
+        }
+      }
+    };
+
+    void checkBackendHealth();
+    const intervalId = window.setInterval(() => {
+      void checkBackendHealth();
+    }, 30_000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   return (
     <>
       {/* 顶部状态栏 */}
@@ -180,7 +209,20 @@ export const ReactOverlay: React.FC = () => {
           alignItems: 'center',
           gap: 10,
         }}>
-          <span>AgentsOffice v0.1</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span>AgentsOffice v0.1</span>
+            <span
+              aria-label={isBackendHealthy ? 'backend-healthy' : 'backend-unhealthy'}
+              title={isBackendHealthy ? 'Backend Healthy' : 'Backend Unhealthy'}
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: isBackendHealthy ? '#4ade80' : '#f87171',
+                display: 'inline-block',
+              }}
+            />
+          </span>
           <span style={{ color: '#88cc99' }}>|</span>
           <span>Agents: {agentCount}/{MAX_AGENTS}</span>
           <span style={{ color: '#88cc99' }}>|</span>
