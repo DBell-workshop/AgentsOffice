@@ -6,282 +6,250 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/demo.gif" width="800" alt="AgentsOffice Demo" />
+  <img src="docs/images/demo.gif" width="800" alt="AgentFleet Demo" />
 </p>
 
-<h1 align="center">AgentsOffice</h1>
+<h1 align="center">AgentFleet</h1>
 
 <p align="center">
-  <strong>给你的 AI 团队一间看得见的办公室</strong>
+  <strong>给你的 AI 团队一间看得见的办公室</strong><br/>
+  <sub>像素风 RPG 多 Agent 协作工作台</sub>
 </p>
 
 <p align="center">
-  <a href="https://github.com/DBell-workshop/agents-office/stargazers"><img src="https://img.shields.io/github/stars/DBell-workshop/agents-office?style=social" alt="Stars" /></a>
-  <a href="https://github.com/DBell-workshop/agents-office/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSL_1.1-blue" alt="License" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/python-3.11+-green" alt="Python" /></a>
+  <a href="https://github.com/DBell-workshop/AgentFleet/stargazers"><img src="https://img.shields.io/github/stars/DBell-workshop/AgentFleet?style=social" alt="Stars" /></a>
+  <a href="https://github.com/DBell-workshop/AgentFleet/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSL_1.1-blue" alt="License" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.9+-green" alt="Python" /></a>
   <a href="#"><img src="https://img.shields.io/badge/frontend-React%20%2B%20Phaser3-purple" alt="Frontend" /></a>
+  <a href="https://github.com/DBell-workshop/AgentFleet/releases/latest"><img src="https://img.shields.io/badge/下载-macOS%20DMG-blue" alt="Download" /></a>
 </p>
 
 <p align="center">
-  <a href="#use-cases">应用场景</a> ·
+  <a href="#screenshots">截图</a> ·
   <a href="#features">功能</a> ·
   <a href="#quick-start">快速开始</a> ·
+  <a href="#pro-vs-lite">Pro vs Lite</a> ·
   <a href="#architecture">架构</a> ·
-  <a href="#support">支持我们</a> ·
-  <a href="LICENSE">License</a>
+  <a href="#support">支持我们</a>
 </p>
 
 ---
 
-## What is AgentsOffice?
+## AgentFleet 是什么？
 
-AgentsOffice 是一个**多 Agent 协作工作台**，用像素风 RPG 办公室让你的 AI 团队"可视化地上班"。
+AgentFleet 是一个**多 Agent 协作工作台**，用像素风 RPG 办公室让你的 AI 团队"可视化地上班"。
 
-你定义角色、写提示词、装载技能，5 分钟就能搭建一个属于你的 AI 数字员工团队。
+定义角色、写提示词、选择场景 —— 几分钟就能搭建属于你的 AI 数字员工团队。
 
 > **和其他"像素办公室"项目不同：我们的 Agent 不只是会走来走去的小人，它们真的在干活。**
 
-| 其他项目 | AgentsOffice |
+| 其他项目 | AgentFleet |
 |---------|-------------|
-| 纯可视化看板，展示 Agent 状态 | **完整的 AI 工作台**，Agent 有真实技能 |
-| 需要外接其他 AI 工具才能工作 | **自带 LLM 对话 + Skill 引擎**，开箱即用 |
-| 单角色展示 | **多角色协作**，调度员自动分配任务 |
-| 只能看 | **能聊天、能触发技能、能分析数据** |
+| 纯可视化看板，展示 Agent 状态 | **完整的 AI 工作台**，Agent 有真实协作能力 |
+| 需要外接其他 AI 工具才能工作 | **自带 LLM 对话 + 委托引擎**，开箱即用 |
+| 单角色演示 | **多角色团队协作**，项目经理自动分配任务 |
+| 只能看 | **对话、委托任务、实时跟踪进度** |
 
 ---
 
-<a id="use-cases"></a>
-## Use Cases — 不限行业，你定义角色就是你的团队
+<a id="screenshots"></a>
+## 截图
 
-> 以下是一些真实应用场景，5 分钟就能配好。
+> 截图来自 **AgentFleet Pro**。Lite（开源版）包含核心像素办公室、Agent 对话和场景系统。
 
-### 📝 自媒体内容工坊
-> 一个人做号？给自己配个内容团队。
-
-**选题策划师** 追热点找选题 + **内容编辑** 写初稿改稿 + **标题专家** 生成10个标题供你选。每天打开办公室，把想写的方向丢进群聊，三个员工自动分工，你只管最后拍板。
-
-### 🎯 产品设计团队
-> 调研、竞品、PRD，不再当"人肉中间件"。
-
-**用户研究员** 整理反馈归纳需求 + **竞品分析师** 拆解竞品功能策略 + **PRD 助手** 自动生成需求文档。分析结论自动流转，不用复制粘贴。
-
-### 📚 教育辅导站
-> 给学生配一个 AI 教学团队。
-
-**知识讲解员** 用通俗语言讲概念 + **出题教练** 根据水平出练习题 + **学习规划师** 根据错题调整复习计划。像素教室里的 AI 老师，学习仪式感拉满。
-
-### 🎧 客服训练营
-> 新人培训，不用老员工带。
-
-**模拟顾客** 扮演各种买家 + **质检主管** 实时评估回复打分 + **话术教练** 每轮对话给改进建议。训练-评估-改进闭环，7x24 小时可练。
-
-### 💡 创业智囊团
-> 请不起咨询公司？配个 AI 顾问团。
-
-**市场分析师** 研究行业趋势 + **商业顾问** 梳理盈利路径 + **增长专家** 设计获客策略。把商业计划书丢进群聊，三个顾问从不同角度给你反馈。每月不到一顿火锅的钱。
-
-### 💻 独立开发者工作室
-> 技术之外的活，交给 AI 同事。
-
-**产品助手** 梳理需求写用户故事 + **代码审查员** review 代码找 bug + **运营文案** 写发布日志和推广文案。你专注写代码，其余交给团队。
-
----
-
-| 场景 | 核心价值 | Agent 数量 |
-|------|---------|-----------|
-| 自媒体工坊 | 一人产出三人效率 | 3 |
-| 产品设计 | 调研到文档自动流转 | 3 |
-| 教育辅导 | AI 教学团队 | 3 |
-| 客服训练 | 训练-评估-改进闭环 | 3 |
-| 创业智囊 | 平价咨询团队 | 3 |
-| 独立开发 | 技术之外全覆盖 | 3 |
-
-**想到了自己的场景？** 打开 AgentsOffice，创建你的 Agent，写上提示词，就能开工。
+<table>
+<tr>
+<td width="50%"><img src="docs/images/screenshots/scene-selector.png" alt="场景选择" /><br/><sub>6 个预设场景模板：电商运营、自媒体工作室、客服中心、开发团队、游戏工作室、量化交易</sub></td>
+<td width="50%"><img src="docs/images/screenshots/dashboard-dark.png" alt="深色大屏" /><br/><sub>实时运营大屏：Token 用量、成本追踪、Agent 活动监控</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/screenshots/dashboard-light.png" alt="浅色大屏" /><br/><sub>浅色主题大屏：委托漏斗、模型用量分布</sub></td>
+<td><img src="docs/images/screenshots/onboarding-scenes.png" alt="新手引导" /><br/><sub>引导式上手：选择场景，立即开始工作</sub></td>
+</tr>
+</table>
 
 ---
 
 <a id="features"></a>
-## Features
+## 功能
 
 ### 🏢 像素风 RPG 办公室
-基于 Phaser 3 游戏引擎构建的 2D 像素办公室。每个 Agent 有自己的工位、房间和动画。点击 Agent 就能和它对话。
+基于 Phaser 3 游戏引擎 —— 2D 像素办公室，每个 Agent 有自己的工位、房间和动画。看它们走动、打字、庆祝。
+
+### 🎭 场景系统
+切换预设场景模板，一键重新配置整个团队：
+- **自媒体工作室** —— 文案编辑、视频剪辑师、运营策划、美工设计
+- **电商运营中心** —— 数据工程师、数据产品经理、运营策划
+- **客服中心** —— 接待、投诉处理、跟进回访
+- **开发团队、游戏工作室、量化交易**等更多场景
+
+每个场景拥有独立的 Agent 团队、聊天记录和委托记录 —— 完全隔离。
 
 ### 🤖 灵活的 Agent 系统
-- **不限数量**：自由创建任意多个 Agent，打造你的专属团队
-- **通过 UI 配置**：角色名、提示词、模型、技能，不用改代码
-- **20 个预制像素角色**可选，每个 Agent 都有独立形象
+- **无限 Agent**：按需创建任意角色
+- **单独模型配置**：每个 Agent 可选择不同的 LLM（Gemini、Claude、GPT、DeepSeek、Qwen）
+- **20 个像素角色**外观可选
+- **桌面宠物猫咪**随 Agent 工作状态变化（12 种品种！）
 
 ### 💬 智能对话
-- **群聊模式**：调度员自动识别意图，分配给合适的 Agent
-- **私聊模式**：直接和特定 Agent 一对一深入交流
-- **Skill 自动触发**：Agent 识别到需要技能时自动执行
+- **群聊**：项目经理自动识别意图并分配给合适的 Agent
+- **私聊**：与特定 Agent 一对一深入对话
+- **圆桌讨论**：多个 Agent 围绕复杂话题协作讨论
 
-### 🔌 Skill 插件系统
-- 继承 `BaseSkill` 即可开发自定义技能
-- Skill 支持多步交互（搜索 → 选择 → 分析）
-- SSE 实时推送执行进度
+### 📋 委托系统（Pro）
+一句话说出需求，AI 团队自动规划并执行：
+1. 你说："帮我写一份自媒体运营方案"
+2. 项目经理创建 6 步执行计划
+3. 团队自动逐步执行
+4. 你实时看到每一步的进度更新
 
-### 🗄️ 数据管理
-- 数据工程师 Agent 可帮你上传 CSV、建表、查询数据
-- PostgreSQL 持久化，JSONB 灵活字段
-- 支持连接外部数据库
+### 📊 运营大屏（Pro）
+实时监控：Token 用量、成本追踪、Agent 活动、委托漏斗。
 
-### 🧮 成本追踪
-- 每次 LLM 调用自动记录 Token 用量和费用
-- 按 Agent / 按模型维度查看成本报表
-- 内置主流模型定价（OpenAI、Claude、Gemini、DeepSeek）
+### 🐱 桌面宠物
+像素猫咪伙伴，住在独立窗口中：
+- **待机** —— 呼吸动画
+- **打字** —— Agent 工作时的 bongo cat 动画
+- **庆祝** —— 任务完成时的星星粒子特效
+- **12 种品种** —— 双击切换
 
 ---
 
 <a id="quick-start"></a>
-## Quick Start
+## 快速开始
 
-### 一键启动（推荐）
+### 桌面应用（推荐）
 
-只需要安装 [Docker](https://www.docker.com/products/docker-desktop/)，然后：
+从 [Releases](https://github.com/DBell-workshop/AgentFleet/releases/latest) 下载最新 DMG：
 
-```bash
-git clone https://github.com/DBell-workshop/agents-office.git
-cd agents-office
-cp .env.example .env   # 编辑 .env，至少填入一个 LLM API Key
-docker compose up -d
-```
+1. 下载 `AgentFleet_x.x.x_aarch64.dmg`（macOS Apple Silicon）
+2. 拖入 Applications
+3. 启动 —— 像素风 Loading 页面会在后端启动时显示
+4. 在设置中配置 API Key，即可开始对话
 
-打开 **http://localhost:8001/static/office/** 即可使用。
+> DMG 已通过 Apple 签名和公证 —— 安装零警告。
 
 ### 开发模式
 
-如果你想修改代码（支持热更新）：
-
 ```bash
-# 数据库
-docker compose up postgres -d
+git clone https://github.com/DBell-workshop/AgentFleet.git
+cd AgentFleet
 
 # 后端
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8001
+python run_server.py
 
-# 前端（另一个终端）
+# 前端（另开终端）
 cd frontend && npm install && npm run dev
 ```
 
-开发模式访问 **http://localhost:5174/static/office/**
+访问 **http://localhost:8000/static/office/**
+
+### Docker
+
+```bash
+cp .env.example .env   # 至少添加一个 LLM API Key
+docker compose up -d
+```
+
+---
+
+<a id="pro-vs-lite"></a>
+## Pro vs Lite
+
+| 功能 | Lite（开源版） | Pro |
+|------|:------------:|:---:|
+| 像素风 RPG 办公室 | ✅ | ✅ |
+| Agent 对话（群聊 + 私聊） | ✅ | ✅ |
+| 场景模板 | ✅ | ✅ |
+| Agent 配置面板 | ✅ | ✅ |
+| 圆桌讨论 | ✅ | ✅ |
+| 桌面宠物猫咪 | ✅ | ✅ |
+| 委托系统 | - | ✅ |
+| 运营大屏 | - | ✅ |
+| CLI 集成（Claude/Codex） | - | ✅ |
+| 桌面应用（Tauri） | - | ✅ |
+| 电商报表 Pack | - | ✅ |
+
+> 本仓库为 **Lite** 版。截图中的 Pro 功能仅作展示用途。
+>
+> 对 Pro 感兴趣？访问 [linkos.cc](https://linkos.cc) 或加入社区。
 
 ---
 
 <a id="architecture"></a>
-## Architecture
+## 架构
 
 ```
-┌─────────────────────────────────────────────┐
-│                  Frontend                    │
-│  Phaser RPG Engine + React Overlay + ChatBox │
-│  (像素办公室 + Agent面板 + 对话框)             │
-└────────────────────┬────────────────────────┘
+┌──────────────────────────────────────────────┐
+│                  前端                          │
+│  Phaser 3 RPG 引擎 + React 覆盖层 + 聊天       │
+└────────────────────┬─────────────────────────┘
                      │ SSE / REST
-┌────────────────────▼────────────────────────┐
-│              FastAPI Backend                  │
-│                                              │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
-│  │ AgentChat │  │  Skills  │  │  Data     │  │
-│  │ (调度/私聊)│  │  Engine  │  │  Manager  │  │
-│  └─────┬────┘  └─────┬────┘  └─────┬─────┘  │
-│        │             │             │         │
-│  ┌─────▼─────────────▼─────────────▼──────┐  │
-│  │           Service Layer                 │  │
-│  │  LLM Service / Agent Runner             │  │
-│  │  Skill Engine / Cost Tracker            │  │
-│  └─────────────────┬──────────────────────┘  │
-│                    │                         │
-│  ┌─────────────────▼──────────────────────┐  │
-│  │         PostgreSQL + SQLAlchemy         │  │
-│  │    Agents / Skills / Tasks / Costs      │  │
-│  └────────────────────────────────────────┘  │
-└──────────────────────────────────────────────┘
+┌────────────────────▼─────────────────────────┐
+│              FastAPI 后端                      │
+│                                               │
+│  ┌───────────┐  ┌──────────┐  ┌────────────┐ │
+│  │ Agent 对话 │  │  场景     │  │  数据      │ │
+│  │ (调度+私聊)│  │  系统     │  │  管理      │ │
+│  └─────┬──────┘  └─────┬────┘  └─────┬──────┘ │
+│  ┌─────▼───────────────▼─────────────▼─────┐  │
+│  │  LLM (LiteLLM) / Agent 运行器 / 成本追踪  │  │
+│  └──────────────────┬──────────────────────┘  │
+│  ┌──────────────────▼──────────────────────┐  │
+│  │         SQLite / PostgreSQL              │  │
+│  └─────────────────────────────────────────┘  │
+└───────────────────────────────────────────────┘
 ```
 
-**Tech Stack:**
-- **Backend**: Python, FastAPI, SQLAlchemy, Pydantic
-- **Frontend**: TypeScript, React, Phaser 3 (RPG engine)
-- **AI**: LLM via OpenAI-compatible API (GPT, Claude, Gemini, Qwen, DeepSeek)
-- **Database**: PostgreSQL with JSONB
-- **Infra**: Docker Compose
+**技术栈：** Python, FastAPI, LiteLLM, TypeScript, React, Phaser 3, SQLite/PostgreSQL, Tauri (Pro)
+
+---
+
+## 路线图
+
+- [x] 像素风 RPG 办公室 + Agent 动画
+- [x] 场景系统 + 隔离的 Agent 和聊天记录
+- [x] 群聊调度 + 私聊 + 圆桌讨论
+- [x] 桌面宠物猫咪（12 种品种）
+- [x] LLM 成本追踪
+- [x] 委托系统 / 运营大屏 / macOS 桌面应用（Pro）
+- [ ] Windows / Linux 桌面应用
+- [ ] 移动端响应式布局
+- [ ] 更多场景模板
 
 ---
 
 <a id="support"></a>
-## Support This Project
+## 支持这个项目
 
-AgentsOffice 是一个由社区驱动的开源项目。如果觉得有用，请考虑支持我们：
-
-<p align="center">
-
-**⭐ [Star this repo](https://github.com/DBell-workshop/agents-office)** — 最简单的支持方式
-
-**💳 PayPal 打赏** — 扫码支持我们<br/>
-<img src="docs/paypal-qr.png" width="180" alt="PayPal QR" />
-
-</p>
-
-> 你的每一个 Star 和赞助都是我们持续开发的动力！
+**⭐ [Star 这个仓库](https://github.com/DBell-workshop/AgentFleet)** —— 最简单的支持方式
 
 ---
 
-## Roadmap
-
-- [x] 像素风 RPG 办公室界面
-- [x] Agent 动态配置（UI 面板）
-- [x] 群聊调度 & 私聊对话
-- [x] Skill 插件引擎
-- [x] 数据工程师（文件上传、建表、SQL查询）
-- [x] LLM 成本追踪
-- [ ] 更多预制 Skill 模板
-- [ ] Agent 状态动画（工作 → 敲键盘，空闲 → 喝咖啡）
-- [ ] 移动端适配
-- [ ] Token 充值 & 用量管理
-- [ ] Skill 市场（社区共享）
-
----
-
-## Community
-
-加入社区，交流想法、提问、分享你的 Agent 配置：
+## 社区
 
 <p align="center">
-  <a href="https://discord.gg/3Cpe5H6m"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
-</p>
-
-<p align="center">
-  <strong>微信群</strong>（扫码加入，7天有效期后请到 Discussions 获取最新二维码）<br/>
-  <img src="docs/wechat-qr.jpg" width="200" alt="WeChat Group QR" />
+  <a href="https://discord.gg/3Cpe5H6m"><img src="https://img.shields.io/badge/Discord-加入服务器-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
 ---
 
-## Contributing
+## 贡献
 
-欢迎贡献！
-
-- 提交 Issue 反馈 Bug 或建议功能
+- 提 [Issue](https://github.com/DBell-workshop/AgentFleet/issues) 报告 Bug 或建议功能
 - 提交 PR 贡献代码
-- 开发自定义 Skill 并分享给社区
-- 在 [Discussions](https://github.com/DBell-workshop/agents-office/discussions) 交流想法
+- 在 [Discussions](https://github.com/DBell-workshop/AgentFleet/discussions) 交流想法
 
 ---
 
-## License
+## 许可证
 
-本项目采用 [Business Source License 1.1](LICENSE)。
-
-- ✅ 个人使用、学习、研究、内部评估
-- ❌ 未经授权不得商业化使用
-- 📅 2030 年自动转为 Apache 2.0 开源
-
-详见 [LICENSE](LICENSE) 文件。
+[Business Source License 1.1](LICENSE) · ✅ 个人/学习/研究 · ❌ 商业使用需授权 · 📅 2030 年转为 Apache 2.0
 
 ---
 
 <p align="center">
-  <sub>Built with ❤️ by the AgentsOffice Team</sub>
+  <sub>Built with ❤️ by the AgentFleet Team</sub>
 </p>
