@@ -29,7 +29,6 @@
   <a href="#features">功能</a> ·
   <a href="#quick-start">快速開始</a> ·
   <a href="#pro-vs-lite">Pro vs Lite</a> ·
-  <a href="#architecture">架構</a> ·
   <a href="#support">支持我們</a>
 </p>
 
@@ -169,11 +168,6 @@ docker compose up -d
 > 對 Pro 感興趣？訪問 [linkos.cc](https://linkos.cc) 或加入社群。
 
 ---
-
-<a id="architecture"></a>
-## 架構
-
-**技術棧：** Python, FastAPI, LiteLLM, TypeScript, React, Phaser 3, SQLite/PostgreSQL, Tauri (Pro)
 
 ---
 

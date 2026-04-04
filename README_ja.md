@@ -29,7 +29,6 @@
   <a href="#features">機能</a> ·
   <a href="#quick-start">クイックスタート</a> ·
   <a href="#pro-vs-lite">Pro vs Lite</a> ·
-  <a href="#architecture">アーキテクチャ</a> ·
   <a href="#support">応援する</a>
 </p>
 
@@ -169,11 +168,6 @@ docker compose up -d
 > Pro に興味がありますか？[linkos.cc](https://linkos.cc) またはコミュニティに参加してください。
 
 ---
-
-<a id="architecture"></a>
-## アーキテクチャ
-
-**技術スタック：** Python, FastAPI, LiteLLM, TypeScript, React, Phaser 3, SQLite/PostgreSQL, Tauri (Pro)
 
 ---
 
